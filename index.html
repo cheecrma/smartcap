@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E1726">
+<title>스마트캡</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+:root{
+  color-scheme: light dark;
+  --bg:#E9EEF4; --sheet:#FFFFFF; --ink:#13202F; --muted:#5A6878; --line:#CBD5E0;
+  --hud:#FFCE3A; --hud-ink:#1A1400; --chip:#F1F4F8;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --chip:#1E2B3B; }
+}
+:root[data-theme="dark"]{ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --chip:#1E2B3B; }
+*,*::before,*::after{box-sizing:inherit}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-tap-highlight-color:transparent;overflow:hidden}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--hud);outline-offset:2px}
+
+/* setup */
+#setup{position:fixed;inset:0;overflow:auto;padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:flex-start}
+.sheet{width:100%;max-width:440px;background:var(--sheet);border:1px solid var(--line);border-radius:22px;padding:28px 22px 22px}
+.mark{display:flex;gap:12px;align-items:center;margin-bottom:6px}
+.mark svg{flex:none}
+h1{font-size:30px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.02em}
+.lead{color:var(--muted);margin:10px 0 24px;line-height:1.6;font-size:15px}
+fieldset{border:0;margin:0 0 20px;padding:0}
+legend{font-weight:600;font-size:15px;margin-bottom:10px}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:14px;margin-bottom:8px;cursor:pointer}
+.opt:has(input:checked){border-color:var(--hud);box-shadow:inset 0 0 0 1px var(--hud)}
+.opt input{margin-top:4px;accent-color:#E0A800}
+.opt b{display:block;font-weight:600}
+.opt small{color:var(--muted);font-size:13px;line-height:1.5}
+.env{font-size:13px;color:var(--muted);line-height:1.6;background:var(--chip);border-radius:12px;padding:10px 12px;margin-bottom:18px}
+.go{width:100%;border:0;border-radius:14px;padding:16px;background:var(--hud);color:var(--hud-ink);font-weight:700;font-size:17px;cursor:pointer}
+.err{color:#D9443A;font-size:14px;margin-top:12px;line-height:1.5;min-height:1em}
+
+/* live view */
+#live{position:fixed;inset:0;background:#000;display:none}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:manipulation}
+video{display:none}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:12px 14px max(14px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(5,10,18,.85) 35%);color:#fff}
+.row{display:flex;gap:8px;align-items:center}
+.row+.row{margin-top:10px}
+#mic{flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--hud);color:var(--hud-ink);display:grid;place-items:center;cursor:pointer}
+#mic.on{background:#fff;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 10px rgba(255,206,58,.25)}}
+@media (prefers-reduced-motion: reduce){#mic.on{animation:none}}
+#q{flex:1;min-width:0;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);padding:0 12px;color:#fff}
+#q::placeholder{color:rgba(255,255,255,.55)}
+.t{border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.08);border-radius:999px;padding:7px 12px;font-size:13px;cursor:pointer;white-space:nowrap;color:#fff}
+.t[aria-pressed="true"]{background:var(--hud);color:var(--hud-ink);border-color:var(--hud)}
+.scroll{overflow-x:auto;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+#safe{position:fixed;top:0;left:0;padding-top:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none}
+#toast{position:fixed;left:50%;top:max(16px,env(safe-area-inset-top));transform:translateX(-50%);background:rgba(10,16,26,.9);color:#fff;padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:90vw}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="safe"></div>
+<div id="toast" role="status"></div>
+
+<section id="setup">
+  <div class="sheet">
+    <div class="mark">
+      <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><path d="M6 26c0-9 7-16 16-16s16 7 16 16" fill="none" stroke="currentColor" stroke-width="3"/><path d="M4 27h36c0 0-2 4-8 4H4z" fill="#FFCE3A"/><circle cx="22" cy="18" r="3" fill="#FFCE3A"/></svg>
+      <h1>스마트캡</h1>
+    </div>
+    <p class="lead">휴대폰 카메라가 눈이 되고, 휴대폰 안의 작은 AI가 보이는 것에 대해 대답합니다. 모자나 헤드셋 틀에 휴대폰을 달고 써보세요.</p>
+
+    <fieldset>
+      <legend>AI 두뇌</legend>
+      <label class="opt"><input type="radio" name="model" value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC" checked><span><b>가벼움</b><small>Qwen2.5 0.5B. 빨리 받고 빨리 답함, 대신 단순한 대답</small></span></label>
+      <label class="opt"><input type="radio" name="model" value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC"><span><b>균형</b><small>Qwen2.5 1.5B. 한국어가 더 자연스러움, 약 1GB 받기와 넉넉한 메모리 필요</small></span></label>
+      <label class="opt"><input type="radio" name="model" value="none"><span><b>AI 없이</b><small>사물 인식과 음성 안내만 사용</small></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>화면 방식</legend>
+      <label class="opt"><input type="radio" name="view" value="mono" checked><span><b>한 화면</b><small>손에 들고 테스트하거나 렌즈 하나짜리 틀에 쓸 때</small></span></label>
+      <label class="opt"><input type="radio" name="view" value="stereo"><span><b>양안 분할</b><small>렌즈 두 개짜리 헤드셋 틀용. 가로 화면, 탭하면 말하기, 길게 누르면 메뉴</small></span></label>
+    </fieldset>
+
+    <div class="env" id="env">기기 확인 중</div>
+    <button class="go" id="go">카메라 켜고 시작</button>
+    <div class="err" id="err"></div>
+  </div>
+</section>
+
+<section id="live">
+  <video id="v" playsinline muted></video>
+  <canvas id="cv" aria-label="카메라 화면과 AI 안내"></canvas>
+  <div id="bar">
+    <div class="row">
+      <button id="mic" aria-label="말하기"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg></button>
+      <input id="q" placeholder="보이는 것에 대해 물어보기" enterkeyhint="send" autocomplete="off">
+    </div>
+    <div class="row scroll">
+      <button class="t" id="look">지금 보이는 것 설명</button>
+      <button class="t" id="hf" aria-pressed="false">핸즈프리</button>
+      <button class="t" id="voice" aria-pressed="true">음성 답변</button>
+      <button class="t" id="stereoBtn" aria-pressed="false">양안 분할</button>
+      <button class="t" id="flip">카메라 전환</button>
+      <button class="t" id="back">처음으로</button>
+    </div>
+  </div>
+</section>
+
+<script>
+const $ = s => document.querySelector(s);
+const video = $('#v'), cv = $('#cv'), ctx = cv.getContext('2d');
+const KO = {person:'사람',bicycle:'자전거',car:'자동차',motorcycle:'오토바이',airplane:'비행기',bus:'버스',train:'기차',truck:'트럭',boat:'배','traffic light':'신호등','fire hydrant':'소화전','stop sign':'정지 표지판','parking meter':'주차 미터기',bench:'벤치',bird:'새',cat:'고양이',dog:'강아지',horse:'말',sheep:'양',cow:'소',elephant:'코끼리',bear:'곰',zebra:'얼룩말',giraffe:'기린',backpack:'배낭',umbrella:'우산',handbag:'핸드백',tie:'넥타이',suitcase:'여행가방',frisbee:'원반',skis:'스키',snowboard:'스노보드','sports ball':'공',kite:'연','baseball bat':'야구방망이','baseball glove':'야구 글러브',skateboard:'스케이트보드',surfboard:'서핑보드','tennis racket':'테니스 라켓',bottle:'병','wine glass':'와인잔',cup:'컵',fork:'포크',knife:'칼',spoon:'숟가락',bowl:'그릇',banana:'바나나',apple:'사과',sandwich:'샌드위치',orange:'오렌지',broccoli:'브로콜리',carrot:'당근','hot dog':'핫도그',pizza:'피자',donut:'도넛',cake:'케이크',chair:'의자',couch:'소파','potted plant':'화분',bed:'침대','dining table':'테이블',toilet:'변기',tv:'TV',laptop:'노트북',mouse:'마우스',remote:'리모컨',keyboard:'키보드','cell phone':'휴대폰',microwave:'전자레인지',oven:'오븐',toaster:'토스터',sink:'싱크대',refrigerator:'냉장고',book:'책',clock:'시계',vase:'꽃병',scissors:'가위','teddy bear':'곰인형','hair drier':'드라이기',toothbrush:'칫솔'};
+const ko = c => KO[c] || c;
+
+const S = {
+  stream:null, facing:'environment', detector:null, dets:[], engine:null, ready:false,
+  model:'none', llmStatus:'', detStatus:'사물 인식 준비 중', ai:'', user:'', busy:false,
+  listening:false, speaking:false, handsfree:false, voiceOn:true, stereo:false,
+  history:[], rec:null, finalText:'', dpr:1, safeTop:0, running:false
+};
+
+/* ---------- environment check ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+(function envCheck(){
+  const gpu = !!navigator.gpu, https = isSecureContext;
+  $('#env').innerHTML =
+    `WebGPU ${gpu ? '지원' : '미지원 (AI 대화는 꺼지고 사물 인식만 동작)'}<br>` +
+    `음성 인식 ${SR ? '지원' : '미지원 (글자로 질문)'}<br>` +
+    (https ? '' : '<b>HTTPS가 아니라서 카메라가 막힐 수 있어요. GitHub Pages 같은 HTTPS 주소에 올려 주세요.</b>');
+})();
+
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove('show'),2600); }
+
+/* ---------- start ---------- */
+$('#go').onclick = async () => {
+  $('#err').textContent = '';
+  S.model = document.querySelector('input[name=model]:checked').value;
+  S.stereo = document.querySelector('input[name=view]:checked').value === 'stereo';
+  // iOS needs a gesture to unlock speech output
+  try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch(e){}
+  try { await openCamera(); }
+  catch(e){ $('#err').textContent = '카메라를 열지 못했어요. 브라우저 설정에서 카메라 권한을 허용하고 HTTPS 주소인지 확인해 주세요. (' + e.name + ')'; return; }
+  $('#setup').style.display = 'none'; $('#live').style.display = 'block';
+  try { await document.documentElement.requestFullscreen?.(); } catch(e){}
+  try { await navigator.wakeLock?.request('screen'); } catch(e){}
+  applyStereo();
+  resize();
+  if(!S.running){ S.running = true; requestAnimationFrame(render); }
+  if(!S.detector) loadDetector();
+  if(S.model !== 'none' && !S.engine) loadLLM(S.model);
+  else if(S.model === 'none') S.llmStatus = 'AI 꺼짐';
+};
+
+async function openCamera(){
+  S.stream?.getTracks().forEach(t=>t.stop());
+  S.stream = await navigator.mediaDevices.getUserMedia({ audio:false,
+    video:{ facingMode:{ideal:S.facing}, width:{ideal:1280}, height:{ideal:720} } });
+  video.srcObject = S.stream; await video.play();
+}
+
+function applyStereo(){
+  $('#stereoBtn').setAttribute('aria-pressed', S.stereo);
+  $('#bar').style.display = S.stereo ? 'none' : 'block';
+  if(S.stereo){ try{ screen.orientation?.lock?.('landscape').catch(()=>{}); }catch(e){} toast('탭하면 말하기, 길게 누르면 메뉴'); }
+  else { try{ screen.orientation?.unlock?.(); }catch(e){} }
+}
+
+function resize(){
+  S.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(innerWidth * S.dpr); cv.height = Math.round(innerHeight * S.dpr);
+  S.safeTop = parseFloat(getComputedStyle($('#safe')).paddingTop) || 0;
+}
+addEventListener('resize', resize);
+document.addEventListener('visibilitychange', async () => {
+  if(document.visibilityState === 'visible' && S.running){ try{ await navigator.wakeLock?.request('screen'); }catch(e){} }
+});
+
+/* ---------- object detection ---------- */
+async function loadDetector(){
+  try{
+    await tf.ready();
+    S.detector = await cocoSsd.load({ base:'lite_mobilenet_v2' });
+    S.detStatus = ''; detectLoop();
+  }catch(e){ S.detStatus = '사물 인식을 불러오지 못했어요'; console.error(e); }
+}
+async function detectLoop(){
+  if(video.readyState >= 2 && !document.hidden){
+    try{ S.dets = await S.detector.detect(video, 12, 0.5); }catch(e){}
+  }
+  setTimeout(detectLoop, 220);
+}
+function sceneText(){
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  if(!S.dets.length) return '인식된 사물 없음';
+  return S.dets.map(d => {
+    const cx = (d.bbox[0] + d.bbox[2]/2) / vw;
+    const pos = cx < .35 ? '왼쪽' : cx > .65 ? '오른쪽' : '정면';
+    const area = d.bbox[2]*d.bbox[3] / (vw*vh);
+    const dist = area > .25 ? '아주 가까움' : area > .05 ? '가까움' : '멀리';
+    return `${ko(d.class)}(${pos}, ${dist})`;
+  }).join(', ');
+}
+function countText(){
+  const m = {}; S.dets.forEach(d => m[ko(d.class)] = (m[ko(d.class)]||0) + 1);
+  return Object.entries(m).map(([k,n]) => n>1 ? `${k} ${n}개` : k).join(', ');
+}
+
+/* ---------- on-device LLM (WebLLM) ---------- */
+async function loadLLM(id){
+  if(!navigator.gpu){ S.llmStatus = 'AI 꺼짐 (WebGPU 미지원)'; return; }
+  S.llmStatus = 'AI 준비 중';
+  try{
+    const webllm = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm');
+    S.engine = await webllm.CreateMLCEngine(id, {
+      initProgressCallback: p => { S.llmStatus = `AI 받는 중 ${Math.round((p.progress||0)*100)}%`; }
+    });
+    S.ready = true; S.llmStatus = 'AI 준비됨';
+    toast('AI 준비 완료. 이제 말을 걸어 보세요');
+  }catch(e){ S.llmStatus = 'AI 꺼짐 (불러오기 실패)'; console.error(e); toast('AI 모델을 불러오지 못했어요: ' + e.message); }
+}
+
+const SYSTEM = `너는 사용자가 얼굴에 쓴 스마트글라스 속 AI 비서야.
+매 질문마다 카메라 사물 인식 결과가 [시야]로 주어져. 위치는 사용자 기준 왼쪽, 정면, 오른쪽이야.
+[시야]에 있는 것만 보인다고 말하고, 그 밖의 내용은 추측이라고 밝혀.
+한국어로 1~3문장, 소리 내어 읽기 좋게 짧고 친근하게 답해. 이모지, 목록 기호, 마크다운은 쓰지 마.`;
+
+async function ask(q){
+  q = (q||'').trim(); if(!q || S.busy) return;
+  S.busy = true; S.user = q; S.ai = '';
+  const scene = sceneText();
+  const userMsg = `[시야] ${scene}\n[질문] ${q}`;
+  if(!S.ready){
+    const seen = countText();
+    S.ai = seen ? `지금 ${seen}이 보여요.` : '지금은 알아볼 수 있는 사물이 없어요.';
+    if(S.model !== 'none') S.ai += ' AI는 아직 준비 중이에요.';
+  } else {
+    try{
+      const stream = await S.engine.chat.completions.create({
+        messages:[{role:'system',content:SYSTEM}, ...S.history.slice(-6), {role:'user',content:userMsg}],
+        stream:true, temperature:0.6, max_tokens:180
+      });
+      for await (const c of stream) S.ai += c.choices[0]?.delta?.content || '';
+      S.ai = S.ai.replace(/[*#`]/g,'').trim();
+      S.history.push({role:'user',content:userMsg}, {role:'assistant',content:S.ai});
+    }catch(e){ S.ai = '답을 만들지 못했어요. ' + e.message; }
+  }
+  S.busy = false;
+  speak(S.ai);
+}
+
+/* ---------- voice in / out ---------- */
+function speak(t){
+  if(!S.voiceOn || !('speechSynthesis' in window) || !t){ afterSpeak(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.05;
+  S.speaking = true;
+  u.onend = u.onerror = () => { S.speaking = false; afterSpeak(); };
+  speechSynthesis.speak(u);
+}
+function afterSpeak(){ if(S.handsfree) setTimeout(listen, 400); }
+
+function listen(){
+  if(!SR){ toast('이 브라우저는 음성 인식을 지원하지 않아요'); return; }
+  if(S.listening || S.speaking || S.busy) return;
+  const r = new SR(); r.lang = 'ko-KR'; r.interimResults = true; r.continuous = false;
+  S.rec = r; S.finalText = ''; S.user = '';
+  r.onresult = e => {
+    let t = ''; for(const res of e.results) t += res[0].transcript;
+    S.user = t; if(e.results[e.results.length-1].isFinal) S.finalText = t;
+  };
+  r.onerror = e => {
+    if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){ S.handsfree = false; $('#hf').setAttribute('aria-pressed', false); toast('마이크 권한을 허용해 주세요'); }
+  };
+  r.onend = () => {
+    S.listening = false; $('#mic').classList.remove('on');
+    const t = S.finalText || '';
+    if(t) ask(t); else if(S.handsfree) setTimeout(listen, 300);
+  };
+  try{ r.start(); S.listening = true; $('#mic').classList.add('on'); }catch(e){}
+}
+function stopListening(){ try{ S.rec?.abort(); }catch(e){} S.listening = false; $('#mic').classList.remove('on'); }
+
+/* ---------- controls ---------- */
+$('#mic').onclick = () => S.listening ? stopListening() : listen();
+$('#q').addEventListener('keydown', e => { if(e.key === 'Enter'){ ask(e.target.value); e.target.value=''; e.target.blur(); } });
+$('#look').onclick = () => ask('지금 내 앞에 뭐가 보이는지 설명해 줘.');
+$('#hf').onclick = e => { S.handsfree = !S.handsfree; e.currentTarget.setAttribute('aria-pressed', S.handsfree); if(S.handsfree) listen(); else stopListening(); };
+$('#voice').onclick = e => { S.voiceOn = !S.voiceOn; e.currentTarget.setAttribute('aria-pressed', S.voiceOn); if(!S.voiceOn) speechSynthesis.cancel(); };
+$('#stereoBtn').onclick = () => { S.stereo = true; applyStereo(); };
+$('#flip').onclick = async () => { S.facing = S.facing === 'environment' ? 'user' : 'environment'; try{ await openCamera(); }catch(e){ toast('카메라를 바꾸지 못했어요'); } };
+$('#back').onclick = () => {
+  stopListening(); S.handsfree = false; $('#hf').setAttribute('aria-pressed', false);
+  S.stream?.getTracks().forEach(t=>t.stop());
+  $('#live').style.display = 'none'; $('#setup').style.display = 'flex';
+  try{ document.exitFullscreen?.(); }catch(e){}
+};
+
+// stereo mode: tap = talk, long press = back to single view with menu
+let pressT = 0, pressTimer = null;
+cv.addEventListener('pointerdown', () => { pressT = Date.now(); pressTimer = setTimeout(() => { if(S.stereo){ S.stereo = false; applyStereo(); toast('한 화면으로 돌아왔어요'); } }, 700); });
+cv.addEventListener('pointerup', () => {
+  clearTimeout(pressTimer);
+  if(Date.now() - pressT < 700 && S.stereo){ S.listening ? stopListening() : listen(); }
+});
+
+/* ---------- rendering ---------- */
+function render(){
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  if(S.stereo){
+    const gap = Math.round(W*0.012), ew = Math.floor((W-gap)/2);
+    drawEye(0, 0, ew, H); drawEye(ew+gap, 0, ew, H);
+  } else drawEye(0, 0, W, H);
+  if($('#live').style.display !== 'none') requestAnimationFrame(render); else S.running = false;
+}
+
+function drawEye(x, y, w, h){
+  ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip();
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const mirror = S.facing === 'user';
+  if(vw){
+    const s = Math.max(w/vw, h/vh), dw = vw*s, dh = vh*s, dx = x+(w-dw)/2, dy = y+(h-dh)/2;
+    if(mirror){ ctx.save(); ctx.translate(x*2+w,0); ctx.scale(-1,1); ctx.drawImage(video, dx, dy, dw, dh); ctx.restore(); }
+    else ctx.drawImage(video, dx, dy, dw, dh);
+    // boxes
+    const u = Math.min(w,h)/100;
+    ctx.lineWidth = Math.max(2, u*0.5); ctx.font = `600 ${Math.round(u*3.4)}px "IBM Plex Sans KR", sans-serif`;
+    for(const d of S.dets){
+      let [bx,by,bw,bh] = d.bbox;
+      if(mirror) bx = vw - bx - bw;
+      const rx = dx + bx*s, ry = dy + by*s, rw = bw*s, rh = bh*s, c = Math.min(rw,rh)*0.18;
+      ctx.strokeStyle = '#FFCE3A';
+      corners(rx, ry, rw, rh, c);
+      const label = ko(d.class), tw = ctx.measureText(label).width, ph = u*5;
+      ctx.fillStyle = '#FFCE3A'; roundRect(rx, Math.max(y, ry-ph-u), tw+u*3, ph, u*1.2); ctx.fill();
+      ctx.fillStyle = '#1A1400'; ctx.textBaseline = 'middle'; ctx.fillText(label, rx+u*1.5, Math.max(y, ry-ph-u)+ph/2);
+    }
+  }
+  drawHud(x, y, w, h);
+  ctx.restore();
+}
+
+function drawHud(x, y, w, h){
+  const u = Math.min(w,h)/100, dpr = S.dpr;
+  // lens edges blur, so keep text toward the center in stereo mode
+  const padX = S.stereo ? w*0.14 : 14*dpr;
+  const top = S.stereo ? h*0.12 : (S.safeTop+12)*dpr;
+  const fs = S.stereo ? Math.round(u*4.6) : Math.round(16*dpr);
+  ctx.textBaseline = 'top';
+
+  // status chips
+  ctx.font = `600 ${Math.round(fs*0.8)}px "IBM Plex Sans KR", sans-serif`;
+  const chips = [S.detStatus || `사물 ${S.dets.length}개`, S.llmStatus].filter(Boolean);
+  if(S.listening) chips.unshift('듣는 중');
+  else if(S.busy) chips.unshift('생각 중');
+  let cx = x + padX;
+  chips.forEach((t,i) => {
+    const tw = ctx.measureText(t).width, ph = fs*1.5;
+    const live = i === 0 && (S.listening || S.busy);
+    ctx.fillStyle = live ? '#FFCE3A' : 'rgba(8,14,24,.62)';
+    roundRect(cx, y+top, tw+fs, ph, ph/2); ctx.fill();
+    ctx.fillStyle = live ? '#1A1400' : '#fff';
+    ctx.fillText(t, cx+fs/2, y+top+ph*0.2);
+    cx += tw + fs*1.4;
+  });
+
+  // conversation panel
+  const bottomGap = S.stereo ? h*0.14 : ((document.getElementById("bar").offsetHeight||130) + 10) * dpr;
+  const maxW = w - padX*2;
+  ctx.font = `400 ${fs}px "IBM Plex Sans KR", sans-serif`;
+  const lh = fs*1.45;
+  let lines = [];
+  if(S.user) wrap('나: ' + S.user, maxW - fs*1.4).slice(0,2).forEach(t => lines.push({t, c:'rgba(255,255,255,.7)'}));
+  if(S.ai) wrap(S.ai, maxW - fs*1.4).forEach(t => lines.push({t, c:'#fff'}));
+  if(!lines.length) return;
+  const maxLines = S.stereo ? 4 : 5;
+  if(lines.length > maxLines) lines = lines.slice(-maxLines);
+  const ph = lines.length*lh + fs*1.1, py = y + h - bottomGap - ph;
+  ctx.fillStyle = 'rgba(8,14,24,.66)'; roundRect(x+padX, py, maxW, ph, fs*0.6); ctx.fill();
+  ctx.fillStyle = '#FFCE3A'; ctx.fillRect(x+padX, py+fs*0.5, Math.max(2, u*0.5), ph-fs);
+  lines.forEach((l,i) => { ctx.fillStyle = l.c; ctx.fillText(l.t, x+padX+fs*0.8, py+fs*0.55+i*lh); });
+}
+
+function wrap(text, maxW){
+  const out = []; let line = '';
+  for(const ch of text.replace(/\s+/g,' ')){
+    const test = line + ch;
+    if(ctx.measureText(test).width > maxW && line){
+      const sp = line.lastIndexOf(' ');
+      if(sp > line.length*0.5){ out.push(line.slice(0,sp)); line = line.slice(sp+1) + ch; }
+      else { out.push(line); line = ch; }
+    } else line = test;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function corners(x,y,w,h,c){
+  ctx.beginPath();
+  ctx.moveTo(x,y+c); ctx.lineTo(x,y); ctx.lineTo(x+c,y);
+  ctx.moveTo(x+w-c,y); ctx.lineTo(x+w,y); ctx.lineTo(x+w,y+c);
+  ctx.moveTo(x+w,y+h-c); ctx.lineTo(x+w,y+h); ctx.lineTo(x+w-c,y+h);
+  ctx.moveTo(x+c,y+h); ctx.lineTo(x,y+h); ctx.lineTo(x,y+h-c);
+  ctx.stroke();
+}
+</script>
+</body>
+</html>
