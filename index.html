@@ -79,6 +79,13 @@ video{display:none}
     </div>
     <p class="lead">물어보는 순간의 화면을 찍어서 AI에게 보여 주고, 본 것에 대해 대답을 들려줍니다. 가운데 조준점에 맞춘 물건이 "이것"이고, 화면을 잠깐 멈추면 물체마다 색 테두리가 생겨서 "빨간 거 뭐야?"처럼 물어볼 수 있어요.</p>
 
+    <fieldset>
+      <legend>AI 엔진</legend>
+      <label class="opt"><input type="radio" name="engine" value="local" checked><span><b>폰 내장 (Hugging Face)</b><small>FastVLM 0.5B로 답하고 Florence-2로 윤곽을 찾음. 인터넷, 키, 비용 없음. 처음 한 번 수백 MB 받기</small></span></label>
+      <label class="opt"><input type="radio" name="engine" value="gemini"><span><b>Gemini</b><small>더 똑똑하고 한국어가 자연스러움. API 키 필요</small></span></label>
+    </fieldset>
+
+    <div id="geminiOpts">
     <label class="lbl" for="key">Gemini API 키</label>
     <div class="keyrow">
       <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza로 시작하는 키">
@@ -91,6 +98,7 @@ video{display:none}
       <label class="opt"><input type="radio" name="model" value="gemini-3.5-flash-lite" checked><span><b>빠름</b><small>Gemini 3.5 Flash-Lite. 대답이 가장 빠르고 저렴함</small></span></label>
       <label class="opt"><input type="radio" name="model" value="gemini-3.6-flash"><span><b>똑똑함</b><small>Gemini 3.6 Flash. 글자 읽기, 복잡한 질문에 더 강함</small></span></label>
     </fieldset>
+    </div>
 
     <fieldset>
       <legend>화면 방식</legend>
@@ -129,7 +137,7 @@ video{display:none}
 const $ = s => document.querySelector(s);
 const video = $('#v'), cv = $('#cv'), ctx = cv.getContext('2d');
 const S = {
-  stream:null, facing:'environment', key:'', model:'', ai:'', user:'', status:'',
+  stream:null, facing:'environment', key:'', model:'', engine:'local', ai:'', user:'', status:'',
   busy:false, listening:false, speaking:false, handsfree:false, voiceOn:true, stereo:false,
   history:[], rec:null, finalText:'', dpr:1, safeTop:0, running:false, snap:null, snapAt:0, flash:0, thinkOff:false,
   outlineOn:true, boxes:[], ref:null, prev:null, off:{x:0,y:0}, cur:{x:0,y:0}, disp:{x:0,y:0}, stale:false, staleAt:0,
@@ -142,6 +150,10 @@ const store = {
 $('#key').value = store.get('smartcap.key');
 const savedModel = store.get('smartcap.model');
 if(savedModel){ const r = document.querySelector(`input[name=model][value="${savedModel}"]`); if(r) r.checked = true; }
+const savedEngine = store.get('smartcap.engine');
+if(savedEngine){ const r = document.querySelector(`input[name=engine][value="${savedEngine}"]`); if(r) r.checked = true; }
+function syncEngineUI(){ $('#geminiOpts').style.display = document.querySelector('input[name=engine]:checked').value === 'gemini' ? 'block' : 'none'; }
+document.querySelectorAll('input[name=engine]').forEach(r => r.addEventListener('change', syncEngineUI)); syncEngineUI();
 $('#showKey').onclick = () => { const k = $('#key'); k.type = k.type === 'password' ? 'text' : 'password'; $('#showKey').textContent = k.type === 'password' ? '보기' : '숨기기'; };
 
 function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove('show'),2600); }
@@ -149,8 +161,11 @@ function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('sho
 /* ---------- start ---------- */
 $('#go').onclick = async () => {
   $('#err').textContent = '';
+  S.engine = document.querySelector('input[name=engine]:checked').value;
   S.key = $('#key').value.trim();
-  if(!S.key){ $('#err').textContent = 'Gemini API 키를 넣어 주세요.'; return; }
+  if(S.engine === 'gemini' && !S.key){ $('#err').textContent = 'Gemini API 키를 넣어 주세요.'; return; }
+  if(S.engine === 'local' && !navigator.gpu){ $('#err').textContent = '이 브라우저는 WebGPU를 지원하지 않아서 폰 내장 AI를 쓸 수 없어요. 최신 크롬으로 열거나 Gemini를 골라 주세요.'; return; }
+  store.set('smartcap.engine', S.engine);
   S.model = document.querySelector('input[name=model]:checked').value;
   S.stereo = document.querySelector('input[name=view]:checked').value === 'stereo';
   store.set('smartcap.key', S.key); store.set('smartcap.model', S.model);
@@ -160,7 +175,9 @@ $('#go').onclick = async () => {
   $('#setup').style.display = 'none'; $('#live').style.display = 'block';
   try { await document.documentElement.requestFullscreen?.(); } catch(e){}
   try { await navigator.wakeLock?.request('screen'); } catch(e){}
-  S.status = S.model.includes('lite') ? 'Flash-Lite' : 'Flash';
+  if(S.engine === 'local'){ if(!LOCAL.started) loadLocal(); else S.status = LOCAL.ready ? '폰 내장 AI' : S.status; }
+  else S.status = S.model.includes('lite') ? 'Flash-Lite' : 'Flash';
+  S.boxes = []; S.ref = null;
   applyStereo(); resize();
   if(!S.running){ S.running = true; requestAnimationFrame(render); }
   if(!S.motionTimer) S.motionTimer = setInterval(motionTick, 66);
@@ -205,11 +222,77 @@ function capture(annotate){
   S.snap = c; S.snapAt = performance.now(); S.flash = performance.now();
   return c.toDataURL('image/jpeg', 0.82).split(',')[1];
 }
-function smallJpeg(max){
+function smallCanvas(max){
   const vw = video.videoWidth, vh = video.videoHeight, k = Math.min(1, max / Math.max(vw, vh));
   const c = document.createElement('canvas'); c.width = Math.round(vw*k); c.height = Math.round(vh*k);
-  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.75).split(',')[1];
+  c.getContext('2d', { willReadFrequently:true }).drawImage(video, 0, 0, c.width, c.height);
+  return c;
+}
+
+/* ---------- on-device engine: Hugging Face models via Transformers.js ---------- */
+const HF_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
+const VLM_ID = 'onnx-community/FastVLM-0.5B-ONNX';
+const OD_ID = 'onnx-community/Florence-2-base-ft';
+let HF = null;
+const LOCAL = { started:false, ready:false, odReady:false, vlm:null, vproc:null, od:null, oproc:null };
+const dl = new Map();
+function onProgress(p){
+  if(p.status !== 'progress' || !p.total) return;
+  dl.set(p.name + '/' + p.file, { l:p.loaded, t:p.total });
+  let l = 0, t = 0; for(const v of dl.values()){ l += v.l; t += v.t; }
+  S.status = `AI 받는 중 ${Math.round(l/t*100)}%`;
+}
+// one model at a time on the GPU
+let gpuChain = Promise.resolve();
+function gpu(fn){ const p = gpuChain.then(fn, fn); gpuChain = p.catch(() => {}); return p; }
+
+async function loadLocal(){
+  LOCAL.started = true; S.status = 'AI 준비 중';
+  try{
+    HF = await import(HF_URL);
+    [LOCAL.vproc, LOCAL.vlm] = await Promise.all([
+      HF.AutoProcessor.from_pretrained(VLM_ID),
+      HF.AutoModelForImageTextToText.from_pretrained(VLM_ID, {
+        device:'webgpu', progress_callback:onProgress,
+        dtype:{ embed_tokens:'fp16', vision_encoder:'q4', decoder_model_merged:'q4' }
+      })
+    ]);
+    S.status = 'AI 예열 중';
+    const warm = document.createElement('canvas'); warm.width = warm.height = 64; warm.getContext('2d').fillRect(0,0,64,64);
+    await gpu(() => localVlm(warm, 'Hi', null, 1)).catch(() => {});
+    LOCAL.ready = true; S.status = '폰 내장 AI';
+    toast('AI 준비 완료. 윤곽 모델도 이어서 받아요');
+  }catch(e){ console.error(e); S.status = 'AI 불러오기 실패'; toast('AI 모델을 불러오지 못했어요: ' + (e.message || e)); return; }
+  try{
+    [LOCAL.oproc, LOCAL.od] = await Promise.all([
+      HF.AutoProcessor.from_pretrained(OD_ID),
+      HF.Florence2ForConditionalGeneration.from_pretrained(OD_ID, {
+        device:'webgpu', progress_callback:onProgress,
+        dtype:{ embed_tokens:'fp16', vision_encoder:'fp16', encoder_model:'q4', decoder_model_merged:'q4' }
+      })
+    ]);
+    LOCAL.odReady = true; S.status = '폰 내장 AI';
+  }catch(e){ console.error(e); S.status = '폰 내장 AI'; toast('윤곽 모델을 불러오지 못했어요'); }
+}
+async function localVlm(canvas, text, onText, max = 160){
+  const image = HF.RawImage.fromCanvas(canvas);
+  const prompt = LOCAL.vproc.apply_chat_template([{ role:'user', content:'<image>' + text }], { add_generation_prompt:true });
+  const inputs = await LOCAL.vproc(image, prompt, { add_special_tokens:false });
+  let out = '';
+  const streamer = new HF.TextStreamer(LOCAL.vproc.tokenizer, {
+    skip_prompt:true, skip_special_tokens:true,
+    callback_function: t => { out += t; onText?.(out); }
+  });
+  await LOCAL.vlm.generate({ ...inputs, max_new_tokens:max, do_sample:false, repetition_penalty:1.15, streamer });
+  return out.trim();
+}
+async function localDetect(canvas){
+  const image = HF.RawImage.fromCanvas(canvas), task = '<OD>';
+  const inputs = await LOCAL.oproc(image, task);
+  const ids = await LOCAL.od.generate({ ...inputs, max_new_tokens:256 });
+  const text = LOCAL.oproc.tokenizer.batch_decode(ids, { skip_special_tokens:false })[0];
+  const r = LOCAL.oproc.post_process_generation(text, task, [image.width, image.height])[task] || { bboxes:[], labels:[] };
+  return (r.bboxes || []).map((b,i) => ({ x0:b[0], y0:b[1], x1:b[2], y1:b[3], label:r.labels[i] || '' }));
 }
 
 /* ---------- color outlines: Gemini finds objects, the phone keeps them in place ---------- */
@@ -217,6 +300,7 @@ const COLORS = [
   {name:'빨강', hex:'#FF453A'}, {name:'파랑', hex:'#3D8BFF'}, {name:'초록', hex:'#30D158'},
   {name:'노랑', hex:'#FFD60A'}, {name:'보라', hex:'#BF5AF2'}, {name:'분홍', hex:'#FF6EC7'}
 ];
+const COLOR_EN = { '빨강':'red', '파랑':'blue', '초록':'green', '노랑':'yellow', '보라':'purple', '분홍':'pink' };
 const COLOR_RE = /(빨강|빨간|붉은|파랑|파란|초록|녹색|노랑|노란|보라|분홍|핑크|테두리)/;
 const SCAN_MODEL = 'gemini-3.5-flash-lite';
 const SCAN_PROMPT = `사진에서 사람이 궁금해할 만한 뚜렷한 물체를 최대 6개 찾아. 물건, 식물, 꽃, 나무, 동물, 간판, 기기, 음식 등.
@@ -271,28 +355,43 @@ function motionTick(){
 }
 function maybeScan(now){
   if(!S.outlineOn || S.scanning || S.busy || now < S.scanPausedUntil) return;
+  if(S.engine === 'local' && !LOCAL.odReady) return;
   if(S.forceScan){ S.forceScan = false; scan(); return; }
   if(S.boxes.length && !S.stale) return;
   if(!S.steadySince || now - S.steadySince < 700 || now - S.lastScan < 2500) return;
   scan();
 }
+function iouBox(a,b){
+  const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]), x2=Math.min(a[0]+a[2],b[0]+b[2]), y2=Math.min(a[1]+a[3],b[1]+b[3]);
+  const i=Math.max(0,x2-x1)*Math.max(0,y2-y1); return i/((a[2]*a[3]+b[2]*b[3]-i)||1);
+}
 async function scan(){
   S.scanning = true; S.lastScan = performance.now();
-  const ref = S.prev, vw = video.videoWidth, vh = video.videoHeight, img = smallJpeg(640);
+  const ref = S.prev, vw = video.videoWidth, vh = video.videoHeight, c = smallCanvas(640);
   try{
-    const text = await callGemini(SCAN_MODEL, [{ role:'user', parts:[{ inline_data:{ mime_type:'image/jpeg', data:img } }, { text:SCAN_PROMPT }] }], { json:true });
-    let arr = []; try{ arr = JSON.parse(text.replace(/```json|```/g,'').trim()); }catch(e){}
-    const list = (Array.isArray(arr) ? arr : [])
-      .filter(o => Array.isArray(o.box_2d) && o.box_2d.length === 4)
-      .map(o => { const [y0,x0,y1,x1] = o.box_2d.map(Number); return { b:[x0/1000*vw, y0/1000*vh, (x1-x0)/1000*vw, (y1-y0)/1000*vh], label:String(o.label||'') }; })
-      .filter(o => { const a = o.b[2]*o.b[3]/(vw*vh); return o.b[2] > 0 && o.b[3] > 0 && a > 0.004 && a < 0.9; })
-      .sort((a,b) => a.b[0] - b.b[0]).slice(0, 6)
-      .map((o,i) => ({ ...o, color:COLORS[i] }));
+    let raw = [];
+    if(S.engine === 'local'){
+      const k = vw / c.width;
+      raw = (await gpu(() => localDetect(c))).map(o => ({ b:[o.x0*k, o.y0*k, (o.x1-o.x0)*k, (o.y1-o.y0)*k], label:o.label }));
+    } else {
+      const img = c.toDataURL('image/jpeg', 0.75).split(',')[1];
+      const text = await callGemini(SCAN_MODEL, [{ role:'user', parts:[{ inline_data:{ mime_type:'image/jpeg', data:img } }, { text:SCAN_PROMPT }] }], { json:true });
+      let arr = []; try{ arr = JSON.parse(text.replace(/```json|```/g,'').trim()); }catch(e){}
+      raw = (Array.isArray(arr) ? arr : [])
+        .filter(o => Array.isArray(o.box_2d) && o.box_2d.length === 4)
+        .map(o => { const [y0,x0,y1,x1] = o.box_2d.map(Number); return { b:[x0/1000*vw, y0/1000*vh, (x1-x0)/1000*vw, (y1-y0)/1000*vh], label:String(o.label||'') }; });
+    }
+    // keep the biggest distinct ones, drop near-duplicates
+    const kept = [];
+    raw.filter(o => { const a = o.b[2]*o.b[3]/(vw*vh); return o.b[2] > 0 && o.b[3] > 0 && a > 0.004 && a < 0.9; })
+       .sort((a,b) => b.b[2]*b.b[3] - a.b[2]*a.b[3])
+       .forEach(o => { if(kept.length < 6 && kept.every(k2 => iouBox(k2.b, o.b) < 0.6)) kept.push(o); });
+    const list = kept.sort((a,b) => a.b[0] - b.b[0]).map((o,i) => ({ ...o, color:COLORS[i] }));
     if(!S.busy){
       S.boxes = list; S.ref = ref; S.off = {x:0,y:0}; S.cur = {x:0,y:0}; S.disp = {x:0,y:0};
       S.stale = false; S.boxBorn = performance.now();
     }
-  }catch(e){ if(e.status === 429) S.scanPausedUntil = performance.now() + 30000; }
+  }catch(e){ console.error(e); if(e.status === 429) S.scanPausedUntil = performance.now() + 30000; }
   S.scanning = false;
 }
 function boxNow(o){
@@ -319,20 +418,28 @@ async function ask(q){
       S.boxes.map(o => `${o.color.name} 테두리(앱의 추정: ${o.label})`).join(', ') +
       `. 사용자가 색으로 부르면 그 색 테두리 안의 물체를 말하는 거야. 추정 이름은 틀릴 수 있으니 사진을 직접 보고 판단해.`;
   }
-  const contents = [
-    ...S.history.slice(-6),
-    { role:'user', parts:[ { inline_data:{ mime_type:'image/jpeg', data:img } }, { text:qText } ] }
-  ];
   let spoken = 0;
+  const onText = text => {
+    S.ai = text.replace(/[*#`]/g,'');
+    const m = S.ai.slice(spoken).match(/^[\s\S]*?[.!?](\s|$)/);
+    if(m && /\s$/.test(m[0])){ say(m[0]); spoken += m[0].length; }
+  };
   try{
-    await callGemini(S.model, contents, { stream:true, onText: text => {
-      S.ai = text.replace(/[*#`]/g,'');
-      const m = S.ai.slice(spoken).match(/^[\s\S]*?[.!?](\s|$)/);
-      if(m && /\s$/.test(m[0])){ say(m[0]); spoken += m[0].length; }
-    }});
+    if(S.engine === 'local'){
+      if(!LOCAL.ready) throw new Error('폰 내장 AI가 아직 준비 중이에요. ' + S.status);
+      const hint = useBoxes ? 'The app drew colored outlines: ' + S.boxes.map(o => `${COLOR_EN[o.color.name]} outline around a ${o.label || 'object'}`).join(', ') + '. ' : '';
+      const prompt = `${hint}You are the assistant inside the user's smart glasses. The object in the exact center of the image is what the user means by "this". The user asks in Korean: "${q}". Answer in Korean in one or two short sentences.`;
+      await gpu(() => localVlm(S.snap, prompt, onText));
+    } else {
+      const contents = [
+        ...S.history.slice(-6),
+        { role:'user', parts:[ { inline_data:{ mime_type:'image/jpeg', data:img } }, { text:qText } ] }
+      ];
+      await callGemini(S.model, contents, { stream:true, onText });
+      S.history.push({ role:'user', parts:[{text:q}] }, { role:'model', parts:[{text:S.ai.trim()}] });
+    }
     S.ai = S.ai.trim(); say(S.ai.slice(spoken));
-    S.history.push({ role:'user', parts:[{text:q}] }, { role:'model', parts:[{text:S.ai}] });
-  }catch(e){ S.ai = e.message; say(S.ai); }
+  }catch(e){ S.ai = e.message || String(e); say(S.ai); }
   S.busy = false;
   if(!pending) afterSpeak();
 }
@@ -380,7 +487,8 @@ let pending = 0;
 function say(t){
   t = (t||'').trim();
   if(!S.voiceOn || !('speechSynthesis' in window) || !t) return;
-  const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.08;
+  const hangul = (t.match(/[가-힣]/g) || []).length, latin = (t.match(/[A-Za-z]/g) || []).length;
+  const u = new SpeechSynthesisUtterance(t); u.lang = hangul >= latin*0.3 ? 'ko-KR' : 'en-US'; u.rate = 1.08;
   pending++; S.speaking = true;
   u.onend = u.onerror = () => { if(--pending <= 0){ pending = 0; S.speaking = false; if(!S.busy) afterSpeak(); } };
   speechSynthesis.speak(u);
