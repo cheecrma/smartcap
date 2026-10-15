@@ -190,31 +190,82 @@ document.addEventListener('visibilitychange', async () => {
 /* ---------- object detection ---------- */
 async function loadDetector(){
   try{
+    try{ await tf.setBackend('webgl'); }catch(e){}
     await tf.ready();
     S.detector = await cocoSsd.load({ base:'lite_mobilenet_v2' });
     S.detStatus = ''; detectLoop();
   }catch(e){ S.detStatus = '사물 인식을 불러오지 못했어요'; console.error(e); }
 }
+// run detection back to back instead of on a fixed timer
 async function detectLoop(){
   if(video.readyState >= 2 && !document.hidden){
-    try{ S.dets = await S.detector.detect(video, 12, 0.5); }catch(e){}
+    const t0 = performance.now();          // the frame the result belongs to
+    try{ updateTracks(await S.detector.detect(video, 12, 0.45), t0); }catch(e){}
   }
-  setTimeout(detectLoop, 220);
+  requestAnimationFrame(detectLoop);
+}
+
+/* ---------- tracker: keeps boxes steady and predicts where they are now ---------- */
+S.tracks = []; let nextId = 1;
+const KEEP_MS = 700;
+function iou(a,b){
+  const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]), x2=Math.min(a[0]+a[2],b[0]+b[2]), y2=Math.min(a[1]+a[3],b[1]+b[3]);
+  const i=Math.max(0,x2-x1)*Math.max(0,y2-y1); return i/((a[2]*a[3]+b[2]*b[3]-i)||1);
+}
+function predict(tr, now){
+  const dt = Math.min(Math.max(0, now - tr.t), 250);
+  return tr.b.map((v,k) => v + tr.v[k]*dt);
+}
+function updateTracks(dets, t){
+  const used = new Set();
+  for(const tr of S.tracks){
+    let best=-1, bs=0.15; const pb = predict(tr, t);
+    dets.forEach((d,i) => { if(used.has(i) || d.class !== tr.cls) return; const s = iou(pb, d.bbox); if(s > bs){ bs = s; best = i; } });
+    if(best < 0) continue;
+    const d = dets[best]; used.add(best);
+    const dt = Math.max(16, t - tr.t);
+    tr.v = tr.v.map((v,k) => v*0.6 + ((d.bbox[k] - tr.b[k]) / dt)*0.4);
+    tr.b = tr.b.map((v,k) => v + (d.bbox[k] - v)*0.65);
+    tr.t = t; tr.seen = t; tr.hits++; tr.score = d.score;
+  }
+  dets.forEach((d,i) => { if(!used.has(i)) S.tracks.push({ id:nextId++, cls:d.class, b:[...d.bbox], v:[0,0,0,0], t, seen:t, hits:1, score:d.score }); });
+  S.tracks = S.tracks.filter(tr => t - tr.seen < KEEP_MS);
+}
+// what is on screen right now, plus which one sits in the middle of your view
+function visible(now = performance.now()){
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  const list = S.tracks
+    .filter(tr => tr.hits >= 2 || tr.score > 0.7)
+    .map(tr => ({ cls:tr.cls, bbox:predict(tr, now), alpha:Math.max(0.25, 1 - (now - tr.seen)/KEEP_MS), focus:false }));
+  let best = null, bestScore = Infinity;
+  for(const o of list){
+    const [x,y,w,h] = o.bbox, cx = (x+w/2)/vw - .5, cy = (y+h/2)/vh - .5;
+    const inside = x < vw/2 && x+w > vw/2 && y < vh/2 && y+h > vh/2;
+    const score = Math.hypot(cx, cy) - (inside ? 1 : 0) + (inside ? (w*h)/(vw*vh) : 0);
+    if(score < bestScore && (inside || Math.hypot(cx,cy) < .3)){ bestScore = score; best = o; }
+  }
+  if(best) best.focus = true;
+  return list;
 }
 function sceneText(){
-  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
-  if(!S.dets.length) return '인식된 사물 없음';
-  return S.dets.map(d => {
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1, v = visible();
+  if(!v.length) return '인식된 사물 없음';
+  return v.map(d => {
     const cx = (d.bbox[0] + d.bbox[2]/2) / vw;
-    const pos = cx < .35 ? '왼쪽' : cx > .65 ? '오른쪽' : '정면';
+    const pos = d.focus ? '정면 한가운데, 사용자가 지금 보고 있음' : cx < .35 ? '왼쪽' : cx > .65 ? '오른쪽' : '정면';
     const area = d.bbox[2]*d.bbox[3] / (vw*vh);
     const dist = area > .25 ? '아주 가까움' : area > .05 ? '가까움' : '멀리';
-    return `${ko(d.class)}(${pos}, ${dist})`;
+    return `${ko(d.cls)}(${pos}, ${dist})`;
   }).join(', ');
 }
 function countText(){
-  const m = {}; S.dets.forEach(d => m[ko(d.class)] = (m[ko(d.class)]||0) + 1);
+  const m = {}; visible().forEach(d => m[ko(d.cls)] = (m[ko(d.cls)]||0) + 1);
   return Object.entries(m).map(([k,n]) => n>1 ? `${k} ${n}개` : k).join(', ');
+}
+function josa(word){
+  const c = word.charCodeAt(word.length-1);
+  if(c < 0xAC00 || c > 0xD7A3) return word + '예요';
+  return word + ((c - 0xAC00) % 28 ? '이에요' : '예요');
 }
 
 /* ---------- on-device LLM (WebLLM) ---------- */
@@ -226,6 +277,8 @@ async function loadLLM(id){
     S.engine = await webllm.CreateMLCEngine(id, {
       initProgressCallback: p => { S.llmStatus = `AI 받는 중 ${Math.round((p.progress||0)*100)}%`; }
     });
+    S.llmStatus = 'AI 예열 중';
+    try{ await S.engine.chat.completions.create({ messages:[{role:'system',content:SYSTEM},{role:'user',content:'준비'}], max_tokens:1 }); }catch(e){}
     S.ready = true; S.llmStatus = 'AI 준비됨';
     toast('AI 준비 완료. 이제 말을 걸어 보세요');
   }catch(e){ S.llmStatus = 'AI 꺼짐 (불러오기 실패)'; console.error(e); toast('AI 모델을 불러오지 못했어요: ' + e.message); }
@@ -236,37 +289,57 @@ const SYSTEM = `너는 사용자가 얼굴에 쓴 스마트글라스 속 AI 비�
 [시야]에 있는 것만 보인다고 말하고, 그 밖의 내용은 추측이라고 밝혀.
 한국어로 1~3문장, 소리 내어 읽기 좋게 짧고 친근하게 답해. 이모지, 목록 기호, 마크다운은 쓰지 마.`;
 
+const ID_RE = /(이게|이거|이건|저게|저거|저건|요거|뭐야|뭐지|뭔지|뭐예요|뭐에요|무엇)/;
+
 async function ask(q){
   q = (q||'').trim(); if(!q || S.busy) return;
+  speechSynthesis?.cancel?.(); pending = 0; S.speaking = false;
   S.busy = true; S.user = q; S.ai = '';
   const scene = sceneText();
+  const focus = visible().find(o => o.focus);
+
+  // fast path: "what is this?" is answered from the tracker, no LLM wait
+  if(ID_RE.test(q) && q.length <= 20 && !/설명|자세히|어떻게|왜/.test(q)){
+    S.ai = focus ? `지금 보고 있는 건 ${josa(ko(focus.cls))}.`
+         : (countText() ? `가운데엔 확실한 게 없고, 주변에 ${countText()} 보여요. 물건을 화면 가운데로 맞춰 주세요.` : '아직 알아볼 수 있는 물건이 없어요. 화면 가운데에 맞춰 주세요.');
+    S.busy = false; say(S.ai); if(!pending) afterSpeak(); return;
+  }
+
   const userMsg = `[시야] ${scene}\n[질문] ${q}`;
   if(!S.ready){
     const seen = countText();
-    S.ai = seen ? `지금 ${seen}이 보여요.` : '지금은 알아볼 수 있는 사물이 없어요.';
+    S.ai = seen ? `지금 ${seen} 보여요.` : '지금은 알아볼 수 있는 사물이 없어요.';
     if(S.model !== 'none') S.ai += ' AI는 아직 준비 중이에요.';
-  } else {
-    try{
-      const stream = await S.engine.chat.completions.create({
-        messages:[{role:'system',content:SYSTEM}, ...S.history.slice(-6), {role:'user',content:userMsg}],
-        stream:true, temperature:0.6, max_tokens:180
-      });
-      for await (const c of stream) S.ai += c.choices[0]?.delta?.content || '';
-      S.ai = S.ai.replace(/[*#`]/g,'').trim();
-      S.history.push({role:'user',content:userMsg}, {role:'assistant',content:S.ai});
-    }catch(e){ S.ai = '답을 만들지 못했어요. ' + e.message; }
+    S.busy = false; say(S.ai); if(!pending) afterSpeak(); return;
   }
+  let spoken = 0;
+  try{
+    const stream = await S.engine.chat.completions.create({
+      messages:[{role:'system',content:SYSTEM}, ...S.history.slice(-4), {role:'user',content:userMsg}],
+      stream:true, temperature:0.5, max_tokens:140
+    });
+    for await (const c of stream){
+      S.ai += (c.choices[0]?.delta?.content || '').replace(/[*#`]/g,'');
+      // speak each sentence as soon as it is complete
+      const rest = S.ai.slice(spoken), m = rest.match(/^[\s\S]*?[.!?](\s|$)/);
+      if(m && /\s$/.test(m[0])){ say(m[0]); spoken += m[0].length; }
+    }
+    S.ai = S.ai.trim();
+    say(S.ai.slice(spoken));
+    S.history.push({role:'user',content:userMsg}, {role:'assistant',content:S.ai});
+  }catch(e){ S.ai = '답을 만들지 못했어요. ' + e.message; say(S.ai); }
   S.busy = false;
-  speak(S.ai);
+  if(!pending) afterSpeak();
 }
 
 /* ---------- voice in / out ---------- */
-function speak(t){
-  if(!S.voiceOn || !('speechSynthesis' in window) || !t){ afterSpeak(); return; }
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.05;
-  S.speaking = true;
-  u.onend = u.onerror = () => { S.speaking = false; afterSpeak(); };
+let pending = 0;
+function say(t){
+  t = (t||'').trim();
+  if(!S.voiceOn || !('speechSynthesis' in window) || !t) return;
+  const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.08;
+  pending++; S.speaking = true;
+  u.onend = u.onerror = () => { if(--pending <= 0){ pending = 0; S.speaking = false; if(!S.busy) afterSpeak(); } };
   speechSynthesis.speak(u);
 }
 function afterSpeak(){ if(S.handsfree) setTimeout(listen, 400); }
@@ -297,7 +370,7 @@ $('#mic').onclick = () => S.listening ? stopListening() : listen();
 $('#q').addEventListener('keydown', e => { if(e.key === 'Enter'){ ask(e.target.value); e.target.value=''; e.target.blur(); } });
 $('#look').onclick = () => ask('지금 내 앞에 뭐가 보이는지 설명해 줘.');
 $('#hf').onclick = e => { S.handsfree = !S.handsfree; e.currentTarget.setAttribute('aria-pressed', S.handsfree); if(S.handsfree) listen(); else stopListening(); };
-$('#voice').onclick = e => { S.voiceOn = !S.voiceOn; e.currentTarget.setAttribute('aria-pressed', S.voiceOn); if(!S.voiceOn) speechSynthesis.cancel(); };
+$('#voice').onclick = e => { S.voiceOn = !S.voiceOn; e.currentTarget.setAttribute('aria-pressed', S.voiceOn); if(!S.voiceOn){ speechSynthesis.cancel(); pending = 0; S.speaking = false; } };
 $('#stereoBtn').onclick = () => { S.stereo = true; applyStereo(); };
 $('#flip').onclick = async () => { S.facing = S.facing === 'environment' ? 'user' : 'environment'; try{ await openCamera(); }catch(e){ toast('카메라를 바꾸지 못했어요'); } };
 $('#back').onclick = () => {
@@ -336,17 +409,24 @@ function drawEye(x, y, w, h){
     else ctx.drawImage(video, dx, dy, dw, dh);
     // boxes
     const u = Math.min(w,h)/100;
-    ctx.lineWidth = Math.max(2, u*0.5); ctx.font = `600 ${Math.round(u*3.4)}px "IBM Plex Sans KR", sans-serif`;
-    for(const d of S.dets){
+    ctx.font = `600 ${Math.round(u*3.4)}px "IBM Plex Sans KR", sans-serif`;
+    const now = performance.now();
+    for(const d of visible(now)){
       let [bx,by,bw,bh] = d.bbox;
       if(mirror) bx = vw - bx - bw;
       const rx = dx + bx*s, ry = dy + by*s, rw = bw*s, rh = bh*s, c = Math.min(rw,rh)*0.18;
-      ctx.strokeStyle = '#FFCE3A';
+      ctx.globalAlpha = d.alpha;
+      ctx.lineWidth = Math.max(2, u*(d.focus ? 0.9 : 0.4));
+      ctx.strokeStyle = d.focus ? '#FFCE3A' : 'rgba(255,255,255,.75)';
       corners(rx, ry, rw, rh, c);
-      const label = ko(d.class), tw = ctx.measureText(label).width, ph = u*5;
-      ctx.fillStyle = '#FFCE3A'; roundRect(rx, Math.max(y, ry-ph-u), tw+u*3, ph, u*1.2); ctx.fill();
-      ctx.fillStyle = '#1A1400'; ctx.textBaseline = 'middle'; ctx.fillText(label, rx+u*1.5, Math.max(y, ry-ph-u)+ph/2);
+      const label = ko(d.cls), tw = ctx.measureText(label).width, ph = u*5, ly = Math.max(y, ry-ph-u);
+      ctx.fillStyle = d.focus ? '#FFCE3A' : 'rgba(8,14,24,.7)'; roundRect(rx, ly, tw+u*3, ph, u*1.2); ctx.fill();
+      ctx.fillStyle = d.focus ? '#1A1400' : '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(label, rx+u*1.5, ly+ph/2);
+      ctx.globalAlpha = 1;
     }
+    // aiming reticle: whatever sits here is "this"
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = Math.max(1.5, u*0.3);
+    ctx.beginPath(); ctx.arc(x+w/2, y+h/2, u*2.2, 0, Math.PI*2); ctx.stroke();
   }
   drawHud(x, y, w, h);
   ctx.restore();
@@ -362,7 +442,7 @@ function drawHud(x, y, w, h){
 
   // status chips
   ctx.font = `600 ${Math.round(fs*0.8)}px "IBM Plex Sans KR", sans-serif`;
-  const chips = [S.detStatus || `사물 ${S.dets.length}개`, S.llmStatus].filter(Boolean);
+  const chips = [S.detStatus || `사물 ${visible().length}개`, S.llmStatus].filter(Boolean);
   if(S.listening) chips.unshift('듣는 중');
   else if(S.busy) chips.unshift('생각 중');
   let cx = x + padX;
