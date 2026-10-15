@@ -3,75 +3,112 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0E1726">
-<title>스마트캡</title>
+<meta name="theme-color" content="#0B1220">
+<title>스마트캡 도감</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <style>
 :root{
   color-scheme: light dark;
-  --bg:#E9EEF4; --sheet:#FFFFFF; --ink:#13202F; --muted:#5A6878; --line:#CBD5E0;
-  --hud:#FFCE3A; --hud-ink:#1A1400; --chip:#F1F4F8; --field:#F7F9FB;
+  --bg:#E9EEF4; --sheet:#FFFFFF; --ink:#13202F; --muted:#5A6878; --line:#CBD5E0; --field:#F7F9FB; --chip:#F1F4F8;
+  --hud:#FFCE3A; --hud-ink:#1A1400;
+  --dex:#0F1A2B; --dex2:#16253B; --dex-line:#2A3D57; --dex-ink:#EAF1FA; --dex-muted:#93A6BE;
   --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
   box-sizing:border-box;
 }
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --chip:#1E2B3B; --field:#101A26; }
+  :root:not([data-theme="light"]){ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --field:#101A26; --chip:#1E2B3B; }
 }
-:root[data-theme="dark"]{ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --chip:#1E2B3B; --field:#101A26; }
+:root[data-theme="dark"]{ --bg:#0E1726; --sheet:#16212F; --ink:#E8EEF5; --muted:#93A2B3; --line:#2A3A4D; --field:#101A26; --chip:#1E2B3B; }
 *,*::before,*::after{box-sizing:inherit}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-tap-highlight-color:transparent;overflow:hidden}
 button,input{font:inherit;color:inherit}
+button{cursor:pointer}
 :focus-visible{outline:3px solid var(--hud);outline-offset:2px}
-a{color:inherit}
 
+/* setup */
 #setup{position:fixed;inset:0;overflow:auto;padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:flex-start}
 .sheet{width:100%;max-width:440px;background:var(--sheet);border:1px solid var(--line);border-radius:22px;padding:28px 22px 22px}
 .mark{display:flex;gap:12px;align-items:center;margin-bottom:6px}
-h1{font-size:30px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.02em}
-.lead{color:var(--muted);margin:10px 0 24px;line-height:1.6;font-size:15px}
+h1{font-size:28px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.02em}
+.lead{color:var(--muted);margin:10px 0 22px;line-height:1.6;font-size:15px}
 fieldset{border:0;margin:0 0 20px;padding:0}
 legend,.lbl{font-weight:600;font-size:15px;margin-bottom:10px;display:block}
-.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:14px;margin-bottom:8px;cursor:pointer}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:14px;margin-bottom:8px}
 .opt:has(input:checked){border-color:var(--hud);box-shadow:inset 0 0 0 1px var(--hud)}
 .opt input{margin-top:4px;accent-color:#E0A800}
 .opt b{display:block;font-weight:600}
 .opt small{color:var(--muted);font-size:13px;line-height:1.5}
-.keyrow{display:flex;gap:8px}
-.keyrow input{flex:1;min-width:0;height:48px;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:0 12px}
-.keyrow button{flex:none;border:1px solid var(--line);background:var(--chip);border-radius:12px;padding:0 14px;cursor:pointer}
-.hint{color:var(--muted);font-size:13px;line-height:1.6;margin:8px 0 12px}
-.qrbtn{width:100%;border:1px dashed var(--line);background:transparent;border-radius:12px;padding:11px;font-size:14px;cursor:pointer;margin-bottom:20px}
-#qrBox{display:none;margin:-8px 0 20px;padding:16px;border-radius:14px;background:#fff;color:#111;text-align:center}
-#qrBox svg{width:min(240px,70vw);height:auto;display:block;margin:0 auto 10px}
-#qrBox p{margin:0;font-size:13px;line-height:1.6}
-.go{width:100%;border:0;border-radius:14px;padding:16px;background:var(--hud);color:var(--hud-ink);font-weight:700;font-size:17px;cursor:pointer}
+#key{width:100%;height:48px;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:0 12px;margin-bottom:20px}
+.go{width:100%;border:0;border-radius:14px;padding:16px;background:var(--hud);color:var(--hud-ink);font-weight:700;font-size:17px}
 .err{color:#D9443A;font-size:14px;margin-top:12px;line-height:1.5;min-height:1em}
 
+/* live */
 #live{position:fixed;inset:0;background:#000;display:none}
 #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:manipulation}
 video{display:none}
-#bar{position:absolute;left:0;right:0;bottom:0;padding:12px 14px max(14px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(5,10,18,.85) 35%);color:#fff}
-.row{display:flex;gap:8px;align-items:center}
-.row+.row{margin-top:10px}
-#mic{flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--hud);color:var(--hud-ink);display:grid;place-items:center;cursor:pointer}
-#mic.on{background:#fff;animation:pulse 1.2s ease-in-out infinite}
-@keyframes pulse{50%{box-shadow:0 0 0 10px rgba(255,206,58,.25)}}
-@media (prefers-reduced-motion: reduce){#mic.on{animation:none}}
-#q{flex:1;min-width:0;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);padding:0 12px;color:#fff}
-#q::placeholder{color:rgba(255,255,255,.55)}
-.t{border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.08);border-radius:999px;padding:7px 12px;font-size:13px;cursor:pointer;white-space:nowrap;color:#fff}
-.t[aria-pressed="true"]{background:var(--hud);color:var(--hud-ink);border-color:var(--hud)}
-.scroll{overflow-x:auto;scrollbar-width:none}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:14px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(4,8,16,.88) 30%);color:#fff}
+.scroll{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .scroll::-webkit-scrollbar{display:none}
+.target{flex:none;display:flex;align-items:center;gap:8px;border:0;border-radius:14px;padding:12px 16px 12px 12px;font-weight:700;font-size:15px;color:#111;background:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.15)}
+.target i{width:14px;height:14px;border-radius:50%;flex:none;box-shadow:0 0 0 2px rgba(0,0,0,.25)}
+.target.center{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.35)}
+.target.center i{background:transparent;border:2px solid #fff;box-shadow:none}
+.tools{margin-top:10px}
+.t{flex:none;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.08);border-radius:999px;padding:8px 13px;font-size:13px;white-space:nowrap;color:#fff;display:flex;align-items:center;gap:6px}
+.t[aria-pressed="true"]{background:var(--hud);color:var(--hud-ink);border-color:var(--hud)}
+.t.mic.on{background:#fff;color:#111}
 #safe{position:fixed;top:0;left:0;padding-top:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none}
-#toast{position:fixed;left:50%;top:max(16px,env(safe-area-inset-top));transform:translateX(-50%);background:rgba(10,16,26,.9);color:#fff;padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:90vw}
+#toast{position:fixed;left:50%;top:max(16px,env(safe-area-inset-top));transform:translateX(-50%);background:rgba(10,16,26,.92);color:#fff;padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30;max-width:90vw}
 #toast.show{opacity:1}
+
+/* dex card */
+#card{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:20;max-width:520px;margin:0 auto;
+  background:var(--dex);color:var(--dex-ink);border-radius:20px;border:2px solid var(--accent,#FFCE3A);
+  box-shadow:0 10px 40px rgba(0,0,0,.5);padding:14px 14px 12px;max-height:72vh;overflow:auto;display:none}
+#card.show{display:block;animation:rise .22s ease-out}
+@keyframes rise{from{transform:translateY(16px);opacity:0}}
+@media (prefers-reduced-motion: reduce){#card.show{animation:none}}
+.chead{display:flex;gap:12px;align-items:flex-start}
+.cimg{width:96px;height:96px;flex:none;border-radius:14px;background:var(--dex2);border:1px solid var(--dex-line);object-fit:cover}
+.cno{font-family:var(--mono);font-size:13px;color:var(--accent,#FFCE3A);letter-spacing:.04em}
+.cname{font-size:22px;font-weight:700;margin:2px 0 2px;line-height:1.25;word-break:keep-all}
+.ccls{font-size:13px;color:var(--dex-muted)}
+.types{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.type{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;color:#0B1220}
+.cx{margin-left:auto;flex:none;border:0;background:var(--dex2);color:var(--dex-ink);width:34px;height:34px;border-radius:10px;font-size:18px;line-height:1}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px}
+.stat{background:var(--dex2);border:1px solid var(--dex-line);border-radius:12px;padding:8px 10px}
+.stat span{display:block;font-size:11px;color:var(--dex-muted);margin-bottom:2px}
+.stat b{font-size:14px}
+.stars{color:var(--accent,#FFCE3A);letter-spacing:2px}
+.cdesc{margin:0 0 8px;line-height:1.65;font-size:15px}
+.facts{margin:0;padding:0;list-style:none}
+.facts li{font-size:14px;line-height:1.55;color:var(--dex-ink);padding:6px 0 6px 18px;position:relative;border-top:1px solid var(--dex-line)}
+.facts li::before{content:"";position:absolute;left:2px;top:13px;width:7px;height:7px;border-radius:2px;background:var(--accent,#FFCE3A)}
+.cfoot{margin-top:10px;font-size:13px;color:var(--dex-muted);display:flex;align-items:center;gap:8px}
+.badge{font-weight:700;color:#0B1220;background:var(--accent,#FFCE3A);padding:3px 9px;border-radius:999px;font-size:12px}
+.skeleton{color:var(--dex-muted)}
+
+/* dex list */
+#dex{position:fixed;inset:0;z-index:25;background:var(--dex);color:var(--dex-ink);display:none;flex-direction:column}
+#dex.show{display:flex}
+.dhead{display:flex;align-items:center;gap:10px;padding:max(14px,env(safe-area-inset-top)) 16px 12px;border-bottom:1px solid var(--dex-line)}
+.dhead h2{margin:0;font-size:20px}
+.dhead small{color:var(--dex-muted);font-size:13px}
+.dhead .sp{flex:1}
+.dbtn{border:1px solid var(--dex-line);background:var(--dex2);color:var(--dex-ink);border-radius:10px;padding:8px 12px;font-size:13px}
+.grid{flex:1;overflow:auto;padding:14px 14px max(14px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;align-content:start}
+.cell{border:1px solid var(--dex-line);background:var(--dex2);border-radius:14px;padding:8px;text-align:left;color:var(--dex-ink)}
+.cell img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block;background:#000}
+.cell .n{font-family:var(--mono);font-size:11px;color:var(--hud);margin-top:6px}
+.cell .nm{font-size:13px;font-weight:600;line-height:1.3;word-break:keep-all;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.empty{grid-column:1/-1;color:var(--dex-muted);text-align:center;padding:60px 20px;line-height:1.7}
 </style>
 </head>
 <body>
@@ -82,30 +119,23 @@ video{display:none}
   <div class="sheet">
     <div class="mark">
       <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><path d="M6 26c0-9 7-16 16-16s16 7 16 16" fill="none" stroke="currentColor" stroke-width="3"/><path d="M4 27h36c0 0-2 4-8 4H4z" fill="#FFCE3A"/><circle cx="22" cy="18" r="3" fill="#FFCE3A"/></svg>
-      <h1>스마트캡</h1>
+      <h1>스마트캡 도감</h1>
     </div>
-    <p class="lead">폰이 사물마다 색 테두리를 실시간으로 그리고, 물어보는 순간의 화면을 Claude에게 보여 줘요. "빨간 거 뭐야?"처럼 색으로 부르거나, 가운데 조준점에 맞추고 "이게 뭐야?"라고 물어보세요.</p>
+    <p class="lead">눈앞의 동물, 식물, 물건에 색 테두리가 생기면 아래 버튼을 눌러 보세요. AI가 살펴보고 도감에 등록해 줘요.</p>
 
     <label class="lbl" for="key">Claude API 키</label>
-    <div class="keyrow">
-      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-로 시작하는 키">
-      <button id="pasteKey" type="button">붙여넣기</button>
-      <button id="showKey" type="button">보기</button>
-    </div>
-    <p class="hint">키는 이 기기 브라우저에만 저장되고, 사진은 Anthropic 서버로만 전송돼요. 테스트용으로 사용 한도를 걸어 둔 별도 키를 쓰는 걸 추천해요.</p>
-    <button class="qrbtn" id="qrBtn" type="button">PC에서 열었다면: 키를 QR로 폰에 넘기기</button>
-    <div id="qrBox" aria-live="polite"></div>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-로 시작하는 키">
 
     <fieldset>
       <legend>AI 모델</legend>
-      <label class="opt"><input type="radio" name="model" value="claude-haiku-5-5" checked><span><b>빠름</b><small>Claude Haiku 5.5. 대답이 빠르고 저렴함</small></span></label>
-      <label class="opt"><input type="radio" name="model" value="claude-sonnet-5-5"><span><b>똑똑함</b><small>Claude Sonnet 5.5. 꽃, 나무 품종이나 글자 읽기처럼 어려운 질문에 강함</small></span></label>
+      <label class="opt"><input type="radio" name="model" value="claude-haiku-5-5" checked><span><b>빠름</b><small>Claude Haiku 5.5. 등록이 빠르고 저렴함</small></span></label>
+      <label class="opt"><input type="radio" name="model" value="claude-sonnet-5-5"><span><b>정밀</b><small>Claude Sonnet 5.5. 동물 종, 꽃과 나무 품종까지 더 정확함</small></span></label>
     </fieldset>
 
     <fieldset>
       <legend>화면 방식</legend>
-      <label class="opt"><input type="radio" name="view" value="mono" checked><span><b>한 화면</b><small>손에 들고 테스트하거나 렌즈 하나짜리 틀에 쓸 때</small></span></label>
-      <label class="opt"><input type="radio" name="view" value="stereo"><span><b>양안 분할</b><small>렌즈 두 개짜리 헤드셋 틀용. 탭하면 말하기, 길게 누르면 메뉴</small></span></label>
+      <label class="opt"><input type="radio" name="view" value="mono" checked><span><b>한 화면</b><small>손에 들고 쓸 때. 아래 버튼으로 살펴보기</small></span></label>
+      <label class="opt"><input type="radio" name="view" value="stereo"><span><b>양안 분할</b><small>헤드셋 틀용. 화면을 탭하면 가운데 대상을 살펴봄, 길게 누르면 메뉴</small></span></label>
     </fieldset>
 
     <button class="go" id="go">카메라 켜고 시작</button>
@@ -115,19 +145,14 @@ video{display:none}
 
 <section id="live">
   <video id="v" playsinline muted></video>
-  <canvas id="cv" aria-label="카메라 화면과 AI 안내"></canvas>
+  <canvas id="cv" aria-label="카메라 화면"></canvas>
   <div id="bar">
-    <div class="row">
-      <button id="mic" aria-label="말하기"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg></button>
-      <input id="q" placeholder="보이는 것에 대해 물어보기" enterkeyhint="send" autocomplete="off">
-    </div>
-    <div class="row scroll">
-      <button class="t" id="look">이게 뭐야?</button>
-      <button class="t" id="read">글자 읽어줘</button>
-      <button class="t" id="outline" aria-pressed="true">윤곽 표시</button>
+    <div class="scroll" id="targets"></div>
+    <div class="scroll tools">
+      <button class="t" id="dexBtn">도감 <b id="dexCount">0</b></button>
+      <button class="t mic" id="mic" aria-label="자유 질문">말로 묻기</button>
       <button class="t" id="names" aria-pressed="false">이름 표시</button>
-      <button class="t" id="hf" aria-pressed="false">핸즈프리</button>
-      <button class="t" id="voice" aria-pressed="true">음성 답변</button>
+      <button class="t" id="voice" aria-pressed="true">음성</button>
       <button class="t" id="stereoBtn" aria-pressed="false">양안 분할</button>
       <button class="t" id="flip">카메라 전환</button>
       <button class="t" id="back">설정</button>
@@ -135,43 +160,51 @@ video{display:none}
   </div>
 </section>
 
+<article id="card" aria-live="polite">
+  <div class="chead">
+    <img class="cimg" id="cImg" alt="">
+    <div style="min-width:0;flex:1">
+      <div class="cno" id="cNo">No.???</div>
+      <div class="cname" id="cName">살펴보는 중</div>
+      <div class="ccls" id="cCls"></div>
+      <div class="types" id="cTypes"></div>
+    </div>
+    <button class="cx" id="cClose" aria-label="닫기">×</button>
+  </div>
+  <div class="stats" id="cStats">
+    <div class="stat"><span>희귀도</span><b class="stars" id="cRare">&nbsp;</b></div>
+    <div class="stat"><span>크기</span><b id="cSize">&nbsp;</b></div>
+  </div>
+  <p class="cdesc" id="cDesc"></p>
+  <ul class="facts" id="cFacts"></ul>
+  <div class="cfoot" id="cFoot"></div>
+</article>
+
+<section id="dex" aria-label="도감">
+  <div class="dhead">
+    <div><h2>스마트캡 도감</h2><small id="dexSum"></small></div>
+    <div class="sp"></div>
+    <button class="dbtn" id="dexClear">비우기</button>
+    <button class="dbtn" id="dexClose">닫기</button>
+  </div>
+  <div class="grid" id="dexGrid"></div>
+</section>
+
 <script>
 const $ = s => document.querySelector(s);
 const video = $('#v'), cv = $('#cv'), ctx = cv.getContext('2d');
 const S = {
-  stream:null, facing:'environment', key:'', model:'', ai:'', user:'',
-  busy:false, listening:false, speaking:false, handsfree:false, voiceOn:true, stereo:false,
-  outlineOn:true, namesOn:false, detector:null, detStatus:'사물 인식 준비 중',
-  history:[], rec:null, finalText:'', dpr:1, safeTop:0, running:false, snap:null, snapAt:0, flash:0
+  stream:null, facing:'environment', key:'', model:'', busy:false, listening:false, voiceOn:true, stereo:false,
+  namesOn:false, detector:null, detStatus:'윤곽 준비 중', dpr:1, safeTop:0, running:false, flash:0, hud:'', rec:null
 };
 const store = {
   get(k){ try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } },
-  set(k,v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  set(k,v){ try{ localStorage.setItem(k, v); return true; }catch(e){ return false; } }
 };
 $('#key').value = store.get('smartcap.claudeKey');
 const savedModel = store.get('smartcap.claudeModel');
 if(savedModel){ const r = document.querySelector(`input[name=model][value="${savedModel}"]`); if(r) r.checked = true; }
-const cleanKey = t => (t || '').replace(/\s+/g, '');
-$('#pasteKey').onclick = async () => {
-  try{
-    const t = cleanKey(await navigator.clipboard.readText());
-    if(t){ $('#key').value = t; toast(t.startsWith('sk-ant-') ? '키를 붙여넣었어요' : '붙여넣었어요. 키가 맞는지 확인해 주세요'); }
-    else toast('클립보드가 비어 있어요');
-  }catch(e){ $('#key').focus(); toast('입력칸을 길게 눌러 붙여넣기 해 주세요'); }
-};
-let qrTimer = null;
-$('#qrBtn').onclick = () => {
-  const box = $('#qrBox');
-  if(box.style.display === 'block'){ box.style.display = 'none'; box.innerHTML = ''; return; }
-  const k = cleanKey($('#key').value);
-  if(!k){ toast('먼저 키 입력칸에 키를 붙여넣어 주세요'); return; }
-  const qr = qrcode(0, 'M'); qr.addData(k); qr.make();
-  box.innerHTML = qr.createSvgTag(6, 2) + '<p>폰 카메라로 찍고 <b>텍스트 복사</b>를 누른 뒤, 폰에서 이 페이지를 열어 <b>붙여넣기</b>를 누르세요.<br>보안을 위해 60초 뒤 자동으로 사라져요.</p>';
-  box.style.display = 'block';
-  clearTimeout(qrTimer); qrTimer = setTimeout(() => { box.style.display = 'none'; box.innerHTML = ''; }, 60000);
-};
-$('#showKey').onclick = () => { const k = $('#key'); k.type = k.type === 'password' ? 'text' : 'password'; $('#showKey').textContent = k.type === 'password' ? '보기' : '숨기기'; };
-function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove('show'),2600); }
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove('show'),2400); }
 
 const KO = {person:'사람',bicycle:'자전거',car:'자동차',motorcycle:'오토바이',airplane:'비행기',bus:'버스',train:'기차',truck:'트럭',boat:'배','traffic light':'신호등','fire hydrant':'소화전','stop sign':'정지 표지판','parking meter':'주차 미터기',bench:'벤치',bird:'새',cat:'고양이',dog:'강아지',horse:'말',sheep:'양',cow:'소',elephant:'코끼리',bear:'곰',zebra:'얼룩말',giraffe:'기린',backpack:'배낭',umbrella:'우산',handbag:'핸드백',tie:'넥타이',suitcase:'여행가방',frisbee:'원반',skis:'스키',snowboard:'스노보드','sports ball':'공',kite:'연','baseball bat':'야구방망이','baseball glove':'야구 글러브',skateboard:'스케이트보드',surfboard:'서핑보드','tennis racket':'테니스 라켓',bottle:'병','wine glass':'와인잔',cup:'컵',fork:'포크',knife:'칼',spoon:'숟가락',bowl:'그릇',banana:'바나나',apple:'사과',sandwich:'샌드위치',orange:'오렌지',broccoli:'브로콜리',carrot:'당근','hot dog':'핫도그',pizza:'피자',donut:'도넛',cake:'케이크',chair:'의자',couch:'소파','potted plant':'화분',bed:'침대','dining table':'테이블',toilet:'변기',tv:'모니터',laptop:'노트북',mouse:'마우스',remote:'리모컨',keyboard:'키보드','cell phone':'휴대폰',microwave:'전자레인지',oven:'오븐',toaster:'토스터',sink:'싱크대',refrigerator:'냉장고',book:'책',clock:'시계',vase:'꽃병',scissors:'가위','teddy bear':'곰인형','hair drier':'드라이기',toothbrush:'칫솔'};
 const ko = c => KO[c] || c;
@@ -179,12 +212,11 @@ const COLORS = [
   {name:'빨강', hex:'#FF453A'}, {name:'파랑', hex:'#3D8BFF'}, {name:'초록', hex:'#30D158'},
   {name:'노랑', hex:'#FFD60A'}, {name:'보라', hex:'#BF5AF2'}, {name:'분홍', hex:'#FF6EC7'}
 ];
-const COLOR_RE = /(빨강|빨간|붉은|파랑|파란|초록|녹색|노랑|노란|보라|분홍|핑크|테두리)/;
 
 /* ---------- start ---------- */
 $('#go').onclick = async () => {
   $('#err').textContent = '';
-  S.key = cleanKey($('#key').value); $('#key').value = S.key;
+  S.key = $('#key').value.replace(/\s+/g,''); $('#key').value = S.key;
   if(!S.key){ $('#err').textContent = 'Claude API 키를 넣어 주세요.'; return; }
   S.model = document.querySelector('input[name=model]:checked').value;
   S.stereo = document.querySelector('input[name=view]:checked').value === 'stereo';
@@ -195,9 +227,11 @@ $('#go').onclick = async () => {
   $('#setup').style.display = 'none'; $('#live').style.display = 'block';
   try { await document.documentElement.requestFullscreen?.(); } catch(e){}
   try { await navigator.wakeLock?.request('screen'); } catch(e){}
-  applyStereo(); resize();
+  applyStereo(); resize(); updateDexCount();
   if(!S.running){ S.running = true; requestAnimationFrame(render); }
   if(!S.detector && !S.detLoading) loadDetector();
+  if(!S.chipTimer) S.chipTimer = setInterval(updateTargets, 250);
+  updateTargets(true);
 };
 async function openCamera(){
   S.stream?.getTracks().forEach(t=>t.stop());
@@ -208,7 +242,7 @@ async function openCamera(){
 function applyStereo(){
   $('#stereoBtn').setAttribute('aria-pressed', S.stereo);
   $('#bar').style.display = S.stereo ? 'none' : 'block';
-  if(S.stereo){ try{ screen.orientation?.lock?.('landscape').catch(()=>{}); }catch(e){} toast('탭하면 말하기, 길게 누르면 메뉴'); }
+  if(S.stereo){ hideCard(); try{ screen.orientation?.lock?.('landscape').catch(()=>{}); }catch(e){} toast('탭하면 가운데 대상을 살펴봐요. 길게 누르면 메뉴'); }
   else { try{ screen.orientation?.unlock?.(); }catch(e){} }
 }
 function resize(){
@@ -221,7 +255,7 @@ document.addEventListener('visibilitychange', async () => {
   if(document.visibilityState === 'visible' && S.running){ try{ await navigator.wakeLock?.request('screen'); }catch(e){} }
 });
 
-/* ---------- on-phone object detection (TensorFlow.js COCO-SSD) ---------- */
+/* ---------- on-phone detection + tracker ---------- */
 async function loadDetector(){
   S.detLoading = true;
   try{
@@ -229,27 +263,22 @@ async function loadDetector(){
     await tf.ready();
     S.detector = await cocoSsd.load({ base:'lite_mobilenet_v2' });
     S.detStatus = ''; detectLoop();
-  }catch(e){ console.error(e); S.detStatus = '윤곽 꺼짐'; toast('사물 인식을 불러오지 못했어요. 질문은 계속 할 수 있어요'); }
+  }catch(e){ console.error(e); S.detStatus = '윤곽 꺼짐'; toast('윤곽 인식을 못 불러왔어요. 가운데 살펴보기는 돼요'); }
 }
 async function detectLoop(){
-  if(S.outlineOn && video.readyState >= 2 && !document.hidden && $('#live').style.display !== 'none'){
+  if(video.readyState >= 2 && !document.hidden && $('#live').style.display !== 'none'){
     const t0 = performance.now();
-    try{ updateTracks(await S.detector.detect(video, 12, 0.45), t0); }catch(e){}
+    try{ updateTracks(await S.detector.detect(video, 10, 0.45), t0); }catch(e){}
   }
   requestAnimationFrame(detectLoop);
 }
-
-/* ---------- tracker: steady boxes, stable colors, latency prediction ---------- */
 let tracks = [], nextId = 1;
 const KEEP_MS = 900;
 function iou(a,b){
   const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]), x2=Math.min(a[0]+a[2],b[0]+b[2]), y2=Math.min(a[1]+a[3],b[1]+b[3]);
   const i=Math.max(0,x2-x1)*Math.max(0,y2-y1); return i/((a[2]*a[3]+b[2]*b[3]-i)||1);
 }
-function predict(tr, now){
-  const dt = Math.min(Math.max(0, now - tr.t), 250);
-  return tr.b.map((v,k) => v + tr.v[k]*dt);
-}
+function predict(tr, now){ const dt = Math.min(Math.max(0, now - tr.t), 250); return tr.b.map((v,k) => v + tr.v[k]*dt); }
 function updateTracks(dets, t){
   const used = new Set();
   for(const tr of tracks){
@@ -264,7 +293,6 @@ function updateTracks(dets, t){
   }
   dets.forEach((d,i) => { if(!used.has(i)) tracks.push({ id:nextId++, cls:d.class, b:[...d.bbox], v:[0,0,0,0], t, seen:t, hits:1, score:d.score, color:null }); });
   tracks = tracks.filter(tr => t - tr.seen < KEEP_MS);
-  // give each confirmed object a color it keeps while it stays on screen
   const confirmed = tracks.filter(tr => tr.hits >= 2 || tr.score > 0.7).sort((a,b) => b.b[2]*b.b[3] - a.b[2]*a.b[3]);
   const taken = new Set(confirmed.filter(tr => tr.color).map(tr => tr.color.name));
   for(const tr of confirmed){
@@ -274,100 +302,190 @@ function updateTracks(dets, t){
   }
 }
 function visible(now = performance.now()){
-  if(!S.outlineOn) return [];
-  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
-  const list = tracks.filter(tr => tr.color).map(tr => ({
-    cls:tr.cls, color:tr.color, bbox:predict(tr, now), alpha:Math.max(0.2, 1 - (now - tr.seen)/KEEP_MS), focus:false
-  }));
-  let best = null, bestD = 0.3;
-  for(const o of list){
-    const [x,y,w,h] = o.bbox, d = Math.hypot((x+w/2)/vw - .5, (y+h/2)/vh - .5);
-    const inside = x < vw/2 && x+w > vw/2 && y < vh/2 && y+h > vh/2;
-    const score = inside ? d - 1 : d;
-    if(score < bestD){ bestD = score; best = o; }
+  return tracks.filter(tr => tr.color).map(tr => ({ cls:tr.cls, color:tr.color, bbox:predict(tr, now), alpha:Math.max(0.2, 1 - (now - tr.seen)/KEEP_MS) }));
+}
+function centerTarget(){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  let best = null, bd = 1;
+  for(const o of visible()){
+    const [x,y,w,h] = o.bbox;
+    if(x < vw/2 && x+w > vw/2 && y < vh/2 && y+h > vh/2){ const a = w*h; if(!best || a < bd){ best = o; bd = a; } }
   }
-  if(best) best.focus = true;
-  return list;
+  return best;
 }
 
-/* ---------- capture the moment you ask ---------- */
-function capture(annotate, list){
-  const vw = video.videoWidth, vh = video.videoHeight; if(!vw) return null;
-  const k = Math.min(1, 1024 / Math.max(vw, vh)), c = document.createElement('canvas');
-  c.width = Math.round(vw*k); c.height = Math.round(vh*k);
-  const g = c.getContext('2d');
-  g.drawImage(video, 0, 0, c.width, c.height);
-  if(annotate){
-    g.lineWidth = Math.max(3, c.width/260);
-    for(const o of list){
-      const [x,y,w,h] = o.bbox.map(v => v*k);
-      g.strokeStyle = o.color.hex; roundRect(x, y, w, h, Math.min(w,h)*0.08, g); g.stroke();
-    }
+/* ---------- target buttons: one per colored outline ---------- */
+let lastKey = '';
+function updateTargets(force){
+  if(S.stereo) return;
+  const list = visible().sort((a,b) => COLORS.indexOf(a.color) - COLORS.indexOf(b.color));
+  const key = list.map(o => o.color.name + o.cls).join('|') + (S.namesOn ? 'n' : '');
+  if(key === lastKey && !force) return;
+  lastKey = key;
+  const box = $('#targets'); box.innerHTML = '';
+  const center = document.createElement('button');
+  center.className = 'target center'; center.innerHTML = '<i></i>가운데 살펴보기';
+  center.onclick = () => examine(null);
+  box.appendChild(center);
+  for(const o of list){
+    const b = document.createElement('button');
+    b.className = 'target'; b.style.background = o.color.hex;
+    const dot = document.createElement('i'); dot.style.background = '#fff';
+    b.append(dot, document.createTextNode(`${o.color.name} 살펴보기${S.namesOn ? ' (' + ko(o.cls) + ')' : ''}`));
+    b.onclick = () => examine(o.color.name);
+    box.appendChild(b);
   }
-  S.snap = c; S.snapAt = performance.now(); S.flash = performance.now();
-  return c.toDataURL('image/jpeg', 0.82).split(',')[1];
+}
+
+/* ---------- crop what you picked ---------- */
+function cropCanvas(b, pad, max){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  let x = b[0] - b[2]*pad, y = b[1] - b[3]*pad, w = b[2]*(1+2*pad), h = b[3]*(1+2*pad);
+  x = Math.max(0, x); y = Math.max(0, y); w = Math.min(vw - x, w); h = Math.min(vh - y, h);
+  const k = Math.min(1, max / Math.max(w, h)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w*k)); c.height = Math.max(1, Math.round(h*k));
+  c.getContext('2d').drawImage(video, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+function thumbOf(c){
+  const s = Math.min(c.width, c.height), t = document.createElement('canvas'); t.width = t.height = 160;
+  t.getContext('2d').drawImage(c, (c.width-s)/2, (c.height-s)/2, s, s, 0, 0, 160, 160);
+  return t.toDataURL('image/jpeg', 0.7);
+}
+
+/* ---------- dex ---------- */
+const DEX_PROMPT = `너는 스마트글라스 속 도감 AI야. 사진은 사용자가 고른 대상을 잘라낸 거야. 사진 한가운데의 주인공을 판별해서 도감 항목을 써.
+동물이면 종까지, 식물이면 품종이나 종까지, 물건이면 구체적인 종류까지 가능한 한 정확하게.
+아래 형식 그대로, 각 줄 한 번씩, 다른 말은 쓰지 마.
+이름: 가장 구체적인 한국어 이름 (확실하지 않으면 끝에 "(추정)")
+분류: 생물이면 과와 무리(예: 고양이과 포유류), 물건이면 종류(예: 무선 충전 거치대)
+타입: 1~2개 짧은 단어, 쉼표로 구분 (예: 동물, 반려 / 식물, 꽃 / 전자기기)
+희귀도: 흔함, 보통, 희귀, 매우 희귀 중 하나 (일상에서 마주칠 확률)
+크기: 대략적인 크기 한 줄
+설명: 도감처럼 흥미롭게 2문장
+특징: 짧은 한 줄
+특징: 짧은 한 줄`;
+const RARE = { '흔함':1, '보통':2, '희귀':3, '매우 희귀':4 };
+function parseDex(t){
+  const o = { facts:[] }, map = { '이름':'name', '분류':'cls', '타입':'types', '희귀도':'rarity', '크기':'size', '설명':'desc' };
+  for(const line of t.split('\n')){
+    const m = line.match(/^\s*(이름|분류|타입|희귀도|크기|설명|특징)\s*[:：]\s*(.*)$/);
+    if(!m) continue;
+    const v = m[2].replace(/[*#`]/g,'').trim();
+    if(m[1] === '특징'){ if(v) o.facts.push(v); } else o[map[m[1]]] = v;
+  }
+  return o;
+}
+function loadDex(){ try{ return JSON.parse(store.get('smartcap.dex') || '[]'); }catch(e){ return []; } }
+function saveDex(d){ if(!store.set('smartcap.dex', JSON.stringify(d))) toast('저장 공간이 부족해서 도감에 못 넣었어요'); }
+function updateDexCount(){ $('#dexCount').textContent = loadDex().length; }
+function typeColor(t){ let h = 0; for(const ch of t) h = (h*31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 75% 68%)`; }
+const pad3 = n => String(n).padStart(3, '0');
+
+function fillCard(e, opts = {}){
+  const card = $('#card');
+  card.style.setProperty('--accent', opts.accent || '#FFCE3A');
+  if(opts.img) $('#cImg').src = opts.img;
+  $('#cNo').textContent = e.no ? 'No.' + pad3(e.no) : 'No.???';
+  $('#cName').textContent = e.name || '살펴보는 중';
+  $('#cName').classList.toggle('skeleton', !e.name);
+  $('#cCls').textContent = e.cls || '';
+  const types = $('#cTypes'); types.innerHTML = '';
+  (e.types || '').split(/[,，/]/).map(s => s.trim()).filter(Boolean).slice(0,2).forEach(t => {
+    const sp = document.createElement('span'); sp.className = 'type'; sp.textContent = t; sp.style.background = typeColor(t); types.appendChild(sp);
+  });
+  $('#cStats').style.display = opts.plain ? 'none' : 'grid';
+  const r = RARE[(e.rarity||'').replace(/\s/g,'').replace('매우희귀','매우 희귀')] || 0;
+  $('#cRare').textContent = r ? '★'.repeat(r) + '☆'.repeat(4-r) + ' ' + e.rarity : '\u00a0';
+  $('#cSize').textContent = e.size || '\u00a0';
+  $('#cDesc').textContent = e.desc || '';
+  const facts = $('#cFacts'); facts.innerHTML = '';
+  (e.facts || []).forEach(f => { const li = document.createElement('li'); li.textContent = f; facts.appendChild(li); });
+  $('#cFoot').innerHTML = opts.foot || '';
+  card.classList.add('show');
+}
+function hideCard(){ $('#card').classList.remove('show'); }
+$('#cClose').onclick = hideCard;
+
+async function examine(colorName){
+  if(S.busy){ toast('살펴보는 중이에요'); return; }
+  const vw = video.videoWidth, vh = video.videoHeight; if(!vw) return;
+  let target = colorName ? visible().find(o => o.color.name === colorName) : centerTarget();
+  if(colorName && !target){ toast('그 테두리가 화면에서 사라졌어요'); return; }
+  const box = target ? target.bbox : [vw*0.22, vh*0.22, vw*0.56, vh*0.56];
+  const crop = cropCanvas(box, target ? 0.15 : 0, 640), img = thumbOf(crop);
+  const accent = target ? target.color.hex : '#FFCE3A';
+  S.flash = performance.now(); S.busy = true; S.hud = '살펴보는 중';
+  try{ speechSynthesis.cancel(); }catch(e){}
+  fillCard({}, { img, accent });
+  const hint = target ? `\n[폰의 사물 인식 추정, 자주 틀림: ${ko(target.cls)}]` : '';
+  let entry = {}, spokeDesc = false;
+  try{
+    await streamClaude(DEX_PROMPT, [{ role:'user', content:[
+      { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:crop.toDataURL('image/jpeg', 0.82).split(',')[1] } },
+      { type:'text', text:'이 대상을 도감에 등록해 줘.' + hint }
+    ]}], 380, text => {
+      entry = parseDex(text);
+      fillCard(entry, { accent });
+      S.hud = entry.name ? `${entry.name}${entry.desc ? '. ' + entry.desc : ''}` : '살펴보는 중';
+      if(!spokeDesc && entry.desc && /\n\s*특징/.test(text)){ spokeDesc = true; say(`${entry.name}. ${entry.desc}`); }
+    });
+    if(!entry.name) throw new Error('도감 항목을 만들지 못했어요. 다시 눌러 주세요.');
+    if(!spokeDesc) say(`${entry.name}. ${entry.desc || ''}`);
+    // register
+    const dex = loadDex(), key = entry.name.replace(/\s*\(추정\)\s*/,'');
+    let found = dex.find(d => d.key === key), foot;
+    if(found){
+      found.seen = (found.seen || 1) + 1; found.last = Date.now();
+      Object.assign(found, { ...entry, key, no:found.no, thumb:found.thumb });
+      foot = `<span>이미 등록된 항목이에요. ${found.seen}번째 만남</span>`;
+    } else {
+      found = { ...entry, key, no:(dex.reduce((m,d) => Math.max(m, d.no), 0) + 1), thumb:img, seen:1, first:Date.now(), last:Date.now() };
+      dex.push(found);
+      foot = '<span class="badge">새로 발견!</span><span>도감에 등록했어요</span>';
+    }
+    saveDex(dex); updateDexCount();
+    fillCard(found, { accent, foot });
+  }catch(e){
+    fillCard({ name:'살펴보지 못했어요', desc:e.message }, { accent, plain:true });
+    S.hud = e.message;
+  }
+  S.busy = false;
+}
+
+/* ---------- free question by voice ---------- */
+const ASK_PROMPT = `너는 사용자가 얼굴에 쓴 스마트글라스 속 AI 비서야. 사진은 질문한 순간 눈앞 장면이고, 정중앙이 "이것"이야.
+한국어로 1~3문장, 소리 내어 읽기 좋게 짧게 답해. 이모지, 목록, 마크다운은 쓰지 마.`;
+async function askFree(q){
+  if(S.busy || !q) return;
+  const vw = video.videoWidth, vh = video.videoHeight; if(!vw) return;
+  const full = cropCanvas([0,0,vw,vh], 0, 1024);
+  S.flash = performance.now(); S.busy = true; S.hud = '보는 중';
+  fillCard({ name:q }, { img:thumbOf(full), plain:true });
+  let out = '';
+  try{
+    await streamClaude(ASK_PROMPT, [{ role:'user', content:[
+      { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:full.toDataURL('image/jpeg', 0.82).split(',')[1] } },
+      { type:'text', text:q }
+    ]}], 250, t => { out = t.replace(/[*#`]/g,''); fillCard({ name:q, desc:out }, { plain:true }); S.hud = out; });
+    say(out);
+  }catch(e){ fillCard({ name:q, desc:e.message }, { plain:true }); S.hud = e.message; }
+  S.busy = false;
 }
 
 /* ---------- Claude ---------- */
-const SYSTEM = `너는 사용자가 얼굴에 쓴 스마트글라스 속 AI 비서야.
-사진은 사용자가 질문한 바로 그 순간 사용자의 눈앞 장면이야. 사진 정중앙에 있는 물건이 사용자가 "이것", "이거"라고 가리키는 대상이야.
-앱이 폰에서 사물 인식으로 붙인 추정 이름이 함께 올 수 있는데, 자주 틀리니 참고만 하고 사진을 직접 보고 판단해.
-사진에 색 테두리가 그려져 있으면 앱이 표시한 거야. 사용자가 "빨간 거", "파란 테두리"처럼 색으로 부르면 그 색 테두리 안의 물체를 말하는 거야.
-보이는 것을 근거로 답하고, 확실하지 않으면 그렇다고 말해.
-한국어로 1~3문장, 소리 내어 읽기 좋게 짧고 친근하게 답해. 이모지, 목록 기호, 마크다운은 쓰지 마.`;
-
-async function ask(q){
-  q = (q||'').trim(); if(!q || S.busy) return;
-  try{ speechSynthesis.cancel(); }catch(e){} pending = 0; S.speaking = false;
-  const list = visible(), useBoxes = list.length > 0 && COLOR_RE.test(q);
-  const img = capture(useBoxes, list);
-  if(!img){ toast('카메라 화면이 아직 준비되지 않았어요'); return; }
-  S.busy = true; S.user = q; S.ai = '';
-
-  let hint = '';
-  if(list.length){
-    hint = '\n[앱의 추정, 틀릴 수 있음] ' + list.map(o => `${o.color.name} 테두리: ${ko(o.cls)}${o.focus ? '(정중앙)' : ''}`).join(', ');
-    if(!useBoxes) hint += ' (이번 사진에는 테두리를 그리지 않았어)';
-  }
-  const messages = [
-    ...S.history.slice(-6),
-    { role:'user', content:[
-      { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:img } },
-      { type:'text', text: q + hint }
-    ]}
-  ];
-  let spoken = 0;
-  try{
-    await streamClaude(messages, text => {
-      S.ai = text.replace(/[*#`]/g,'');
-      const m = S.ai.slice(spoken).match(/^[\s\S]*?[.!?](\s|$)/);
-      if(m && /\s$/.test(m[0])){ say(m[0]); spoken += m[0].length; }
-    });
-    S.ai = S.ai.trim(); say(S.ai.slice(spoken));
-    S.history.push({ role:'user', content:q }, { role:'assistant', content:S.ai });
-  }catch(e){ S.ai = e.message; say(S.ai); }
-  S.busy = false;
-  if(!pending) afterSpeak();
-}
-
-async function streamClaude(messages, onText){
+async function streamClaude(system, messages, maxTokens, onText){
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
-    headers:{
-      'content-type':'application/json',
-      'x-api-key':S.key,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({ model:S.model, max_tokens:300, system:SYSTEM, stream:true, messages })
+    headers:{ 'content-type':'application/json', 'x-api-key':S.key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+    body:JSON.stringify({ model:S.model, max_tokens:maxTokens, system, stream:true, messages })
   }).catch(() => { throw new Error('인터넷 연결을 확인해 주세요.'); });
   if(!res.ok){
     let msg = ''; try{ msg = (await res.json()).error?.message || ''; }catch(e){}
     if(res.status === 401) throw new Error('API 키가 맞지 않아요. 설정에서 키를 확인해 주세요.');
-    if(res.status === 403) throw new Error('이 키로는 사용 권한이 없어요. 콘솔에서 키 권한을 확인해 주세요.');
     if(res.status === 404) throw new Error('모델을 찾지 못했어요. 설정에서 다른 모델을 골라 주세요.');
-    if(res.status === 429) throw new Error('요청이 많아서 잠시 막혔어요. 조금 뒤에 다시 물어봐 주세요.');
-    if(res.status === 529) throw new Error('Claude가 지금 붐벼요. 조금 뒤에 다시 물어봐 주세요.');
+    if(res.status === 429) throw new Error('요청이 많아서 잠시 막혔어요. 조금 뒤에 다시 눌러 주세요.');
+    if(res.status === 529) throw new Error('Claude가 지금 붐벼요. 조금 뒤에 다시 눌러 주세요.');
     if(/credit/i.test(msg)) throw new Error('API 크레딧이 부족해요. 콘솔에서 잔액을 확인해 주세요.');
     throw new Error('AI가 응답하지 못했어요. (' + res.status + ') ' + msg.slice(0, 80));
   }
@@ -380,72 +498,68 @@ async function streamClaude(messages, onText){
     while((i = buf.indexOf('\n')) >= 0){
       const line = buf.slice(0, i).trim(); buf = buf.slice(i+1);
       if(!line.startsWith('data:')) continue;
-      try{
-        const j = JSON.parse(line.slice(5));
-        if(j.type === 'content_block_delta' && j.delta?.type === 'text_delta'){ text += j.delta.text; onText(text); }
-        if(j.type === 'error') throw new Error('AI 응답 중 오류가 났어요. ' + (j.error?.message || ''));
-      }catch(e){ if(e.message?.startsWith('AI 응답')) throw e; }
+      let j; try{ j = JSON.parse(line.slice(5)); }catch(e){ continue; }
+      if(j.type === 'content_block_delta' && j.delta?.type === 'text_delta'){ text += j.delta.text; onText(text); }
+      if(j.type === 'error') throw new Error('AI 응답 중 오류가 났어요. ' + (j.error?.message || ''));
     }
   }
-  if(!text.trim()) throw new Error('대답이 비어 있어요. 다시 물어봐 주세요.');
+  if(!text.trim()) throw new Error('대답이 비어 있어요. 다시 눌러 주세요.');
 }
 
-/* ---------- voice in / out ---------- */
+/* ---------- voice ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let pending = 0;
 function say(t){
   t = (t||'').trim();
   if(!S.voiceOn || !('speechSynthesis' in window) || !t) return;
   const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.08;
-  pending++; S.speaking = true;
-  u.onend = u.onerror = () => { if(--pending <= 0){ pending = 0; S.speaking = false; if(!S.busy) afterSpeak(); } };
   speechSynthesis.speak(u);
 }
-function afterSpeak(){ if(S.handsfree) setTimeout(listen, 400); }
 function listen(){
   if(!SR){ toast('이 브라우저는 음성 인식을 지원하지 않아요'); return; }
-  if(S.listening || S.speaking || S.busy) return;
-  const r = new SR(); r.lang = 'ko-KR'; r.interimResults = true; r.continuous = false;
-  S.rec = r; S.finalText = ''; S.user = '';
-  r.onresult = e => {
-    let t = ''; for(const res of e.results) t += res[0].transcript;
-    S.user = t; if(e.results[e.results.length-1].isFinal) S.finalText = t;
-  };
-  r.onerror = e => {
-    if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){ S.handsfree = false; $('#hf').setAttribute('aria-pressed', false); toast('마이크 권한을 허용해 주세요'); }
-  };
-  r.onend = () => {
-    S.listening = false; $('#mic').classList.remove('on');
-    const t = S.finalText || '';
-    if(t) ask(t); else if(S.handsfree) setTimeout(listen, 300);
-  };
-  try{ r.start(); S.listening = true; $('#mic').classList.add('on'); }catch(e){}
+  if(S.listening || S.busy) return;
+  const r = new SR(); r.lang = 'ko-KR'; r.interimResults = false; S.rec = r;
+  let said = '';
+  r.onresult = e => { said = e.results[0][0].transcript; };
+  r.onerror = e => { if(e.error === 'not-allowed') toast('마이크 권한을 허용해 주세요'); };
+  r.onend = () => { S.listening = false; $('#mic').classList.remove('on'); $('#mic').textContent = '말로 묻기'; if(said) askFree(said); };
+  try{ speechSynthesis.cancel(); r.start(); S.listening = true; $('#mic').classList.add('on'); $('#mic').textContent = '듣는 중'; }catch(e){}
 }
-function stopListening(){ try{ S.rec?.abort(); }catch(e){} S.listening = false; $('#mic').classList.remove('on'); }
+
+/* ---------- dex screen ---------- */
+function openDex(){
+  const dex = loadDex().sort((a,b) => a.no - b.no), grid = $('#dexGrid');
+  $('#dexSum').textContent = `발견 ${dex.length}종`;
+  grid.innerHTML = '';
+  if(!dex.length){ grid.innerHTML = '<div class="empty">아직 비어 있어요.<br>색 테두리 버튼을 눌러 첫 항목을 등록해 보세요.</div>'; }
+  for(const d of dex){
+    const b = document.createElement('button'); b.className = 'cell';
+    const im = document.createElement('img'); im.src = d.thumb; im.alt = '';
+    const n = document.createElement('div'); n.className = 'n'; n.textContent = 'No.' + pad3(d.no);
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = d.name;
+    b.append(im, n, nm);
+    b.onclick = () => { $('#dex').classList.remove('show'); fillCard(d, { img:d.thumb, foot:`<span>${d.seen || 1}번 만남</span>` }); };
+    grid.appendChild(b);
+  }
+  $('#dex').classList.add('show');
+}
+$('#dexBtn').onclick = openDex;
+$('#dexClose').onclick = () => $('#dex').classList.remove('show');
+$('#dexClear').onclick = () => { if(confirm('도감을 모두 비울까요?')){ saveDex([]); updateDexCount(); openDex(); } };
 
 /* ---------- controls ---------- */
-$('#mic').onclick = () => S.listening ? stopListening() : listen();
-$('#q').addEventListener('keydown', e => { if(e.key === 'Enter'){ ask(e.target.value); e.target.value=''; e.target.blur(); } });
-$('#look').onclick = () => ask('이게 뭐야?');
-$('#read').onclick = () => ask('보이는 글자를 읽어 줘.');
-$('#outline').onclick = e => { S.outlineOn = !S.outlineOn; e.currentTarget.setAttribute('aria-pressed', S.outlineOn); if(!S.outlineOn) tracks = []; };
-$('#names').onclick = e => { S.namesOn = !S.namesOn; e.currentTarget.setAttribute('aria-pressed', S.namesOn); };
-$('#hf').onclick = e => { S.handsfree = !S.handsfree; e.currentTarget.setAttribute('aria-pressed', S.handsfree); if(S.handsfree) listen(); else stopListening(); };
-$('#voice').onclick = e => { S.voiceOn = !S.voiceOn; e.currentTarget.setAttribute('aria-pressed', S.voiceOn); if(!S.voiceOn){ speechSynthesis.cancel(); pending = 0; S.speaking = false; } };
+$('#mic').onclick = () => S.listening ? S.rec?.stop() : listen();
+$('#names').onclick = e => { S.namesOn = !S.namesOn; e.currentTarget.setAttribute('aria-pressed', S.namesOn); updateTargets(true); };
+$('#voice').onclick = e => { S.voiceOn = !S.voiceOn; e.currentTarget.setAttribute('aria-pressed', S.voiceOn); if(!S.voiceOn) speechSynthesis.cancel(); };
 $('#stereoBtn').onclick = () => { S.stereo = true; applyStereo(); };
 $('#flip').onclick = async () => { S.facing = S.facing === 'environment' ? 'user' : 'environment'; tracks = []; try{ await openCamera(); }catch(e){ toast('카메라를 바꾸지 못했어요'); } };
 $('#back').onclick = () => {
-  stopListening(); S.handsfree = false; $('#hf').setAttribute('aria-pressed', false);
-  S.stream?.getTracks().forEach(t=>t.stop()); tracks = [];
+  S.stream?.getTracks().forEach(t=>t.stop()); tracks = []; hideCard();
   $('#live').style.display = 'none'; $('#setup').style.display = 'flex';
   try{ document.exitFullscreen?.(); }catch(e){}
 };
 let pressT = 0, pressTimer = null;
-cv.addEventListener('pointerdown', () => { pressT = Date.now(); pressTimer = setTimeout(() => { if(S.stereo){ S.stereo = false; applyStereo(); toast('한 화면으로 돌아왔어요'); } }, 700); });
-cv.addEventListener('pointerup', () => {
-  clearTimeout(pressTimer);
-  if(Date.now() - pressT < 700 && S.stereo){ S.listening ? stopListening() : listen(); }
-});
+cv.addEventListener('pointerdown', () => { pressT = Date.now(); pressTimer = setTimeout(() => { if(S.stereo){ S.stereo = false; applyStereo(); updateTargets(true); toast('한 화면으로 돌아왔어요'); } }, 700); });
+cv.addEventListener('pointerup', () => { clearTimeout(pressTimer); if(Date.now() - pressT < 700 && S.stereo) examine(null); });
 
 /* ---------- rendering ---------- */
 function render(){
@@ -464,17 +578,15 @@ function drawEye(x, y, w, h, list, now){
     const s = Math.max(w/vw, h/vh), dw = vw*s, dh = vh*s, dx = x+(w-dw)/2, dy = y+(h-dh)/2;
     if(mirror){ ctx.save(); ctx.translate(x*2+w,0); ctx.scale(-1,1); ctx.drawImage(video, dx, dy, dw, dh); ctx.restore(); }
     else ctx.drawImage(video, dx, dy, dw, dh);
-    // color outlines
-    ctx.font = `600 ${Math.round(u*3.2)}px "IBM Plex Sans KR", sans-serif`; ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.round(u*3.2)}px "IBM Plex Sans KR", sans-serif`; ctx.textBaseline = 'middle';
     for(const o of list){
       let [bx,by,bw,bh] = o.bbox;
       if(mirror) bx = vw - bx - bw;
       const rx = dx + bx*s, ry = dy + by*s, rw = bw*s, rh = bh*s, rr = Math.min(rw,rh)*0.08;
       ctx.globalAlpha = o.alpha;
       ctx.fillStyle = o.color.hex + '1A'; roundRect(rx, ry, rw, rh, rr); ctx.fill();
-      ctx.lineWidth = Math.max(2, u*(o.focus ? 0.9 : 0.55)); ctx.strokeStyle = o.color.hex;
-      ctx.shadowColor = o.color.hex; ctx.shadowBlur = u*1.5;
-      roundRect(rx, ry, rw, rh, rr); ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.lineWidth = Math.max(2, u*0.6); ctx.strokeStyle = o.color.hex;
+      roundRect(rx, ry, rw, rh, rr); ctx.stroke();
       if(S.namesOn){
         const label = ko(o.cls), tw = ctx.measureText(label).width, ph = u*4.6, ly = Math.max(y+u, ry - ph - u*0.6);
         ctx.fillStyle = o.color.hex; roundRect(rx, ly, tw + u*2.6, ph, ph/2); ctx.fill();
@@ -483,59 +595,38 @@ function drawEye(x, y, w, h, list, now){
       ctx.globalAlpha = 1;
     }
   }
-  // shutter flash
   const fa = 1 - (now - S.flash)/250;
   if(fa > 0){ ctx.fillStyle = `rgba(255,255,255,${fa*0.5})`; ctx.fillRect(x,y,w,h); }
-  // reticle
   const cx = x+w/2, cy = y+h/2, r = u*3.2;
-  ctx.strokeStyle = '#fff'; ctx.globalAlpha = S.busy ? 1 : 0.85; ctx.lineWidth = Math.max(1.5, u*(S.busy ? 0.6 : 0.35));
+  ctx.strokeStyle = '#fff'; ctx.globalAlpha = 0.85; ctx.lineWidth = Math.max(1.5, u*(S.busy ? 0.7 : 0.35));
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(cx-r*1.8, cy); ctx.lineTo(cx-r*1.2, cy); ctx.moveTo(cx+r*1.2, cy); ctx.lineTo(cx+r*1.8, cy);
   ctx.moveTo(cx, cy-r*1.8); ctx.lineTo(cx, cy-r*1.2); ctx.moveTo(cx, cy+r*1.2); ctx.lineTo(cx, cy+r*1.8);
   ctx.stroke(); ctx.globalAlpha = 1;
-  drawHud(x, y, w, h, u, now);
+  drawHud(x, y, w, h, u);
   ctx.restore();
 }
-function drawHud(x, y, w, h, u, now){
-  const dpr = S.dpr;
-  const padX = S.stereo ? w*0.14 : 14*dpr;
-  const top = S.stereo ? h*0.12 : (S.safeTop+12)*dpr;
-  const fs = S.stereo ? Math.round(u*4.6) : Math.round(16*dpr);
-  ctx.textBaseline = 'top';
-  ctx.font = `600 ${Math.round(fs*0.8)}px "IBM Plex Sans KR", sans-serif`;
-  const state = S.listening ? '듣는 중' : S.busy ? (S.ai ? '대답 중' : '보는 중') : '';
-  const chips = [state, S.model.includes('haiku') ? 'Haiku' : 'Sonnet', S.detStatus].filter(Boolean);
+function drawHud(x, y, w, h, u){
+  const dpr = S.dpr, padX = S.stereo ? w*0.14 : 14*dpr, top = S.stereo ? h*0.12 : (S.safeTop+12)*dpr;
+  const fs = S.stereo ? Math.round(u*4.4) : Math.round(14*dpr);
+  ctx.textBaseline = 'top'; ctx.font = `600 ${fs}px "IBM Plex Sans KR", sans-serif`;
+  const chips = [S.busy ? '살펴보는 중' : '', S.model.includes('haiku') ? 'Haiku' : 'Sonnet', S.detStatus].filter(Boolean);
   let cx = x + padX;
   chips.forEach((t,i) => {
-    const tw = ctx.measureText(t).width, ph = fs*1.5, live = i === 0 && !!state;
-    ctx.fillStyle = live ? '#FFCE3A' : 'rgba(8,14,24,.62)';
-    roundRect(cx, y+top, tw+fs, ph, ph/2); ctx.fill();
-    ctx.fillStyle = live ? '#1A1400' : '#fff';
-    ctx.fillText(t, cx+fs/2, y+top+ph*0.2);
+    const tw = ctx.measureText(t).width, ph = fs*1.6, live = i === 0 && S.busy;
+    ctx.fillStyle = live ? '#FFCE3A' : 'rgba(8,14,24,.62)'; roundRect(cx, y+top, tw+fs, ph, ph/2); ctx.fill();
+    ctx.fillStyle = live ? '#1A1400' : '#fff'; ctx.fillText(t, cx+fs/2, y+top+ph*0.22);
     cx += tw + fs*1.4;
   });
-  // what the AI saw
-  if(S.snap && (S.busy || S.speaking || now - S.snapAt < 6000)){
-    const tw = Math.min(w*0.26, 180*dpr), th = tw * S.snap.height / S.snap.width;
-    const tx = x + w - padX - tw, ty = y + top;
-    ctx.fillStyle = '#FFCE3A'; roundRect(tx-3, ty-3, tw+6, th+6, 8); ctx.fill();
-    ctx.drawImage(S.snap, tx, ty, tw, th);
-  }
-  const bottomGap = S.stereo ? h*0.14 : ((document.getElementById('bar').offsetHeight||130) + 10) * dpr;
-  const maxW = w - padX*2;
+  // in headset mode the card can't be seen, so show the result inside the view
+  if(!S.stereo || !S.hud) return;
   ctx.font = `400 ${fs}px "IBM Plex Sans KR", sans-serif`;
-  const lh = fs*1.45;
-  let lines = [];
-  if(S.user) wrap('나: ' + S.user, maxW - fs*1.4).slice(0,2).forEach(t => lines.push({t, c:'rgba(255,255,255,.7)'}));
-  if(S.ai) wrap(S.ai, maxW - fs*1.4).forEach(t => lines.push({t, c:'#fff'}));
-  if(!lines.length) return;
-  const maxLines = S.stereo ? 4 : 6;
-  if(lines.length > maxLines) lines = lines.slice(-maxLines);
-  const ph = lines.length*lh + fs*1.1, py = y + h - bottomGap - ph;
-  ctx.fillStyle = 'rgba(8,14,24,.66)'; roundRect(x+padX, py, maxW, ph, fs*0.6); ctx.fill();
-  ctx.fillStyle = '#FFCE3A'; ctx.fillRect(x+padX, py+fs*0.5, Math.max(2, u*0.5), ph-fs);
-  lines.forEach((l,i) => { ctx.fillStyle = l.c; ctx.fillText(l.t, x+padX+fs*0.8, py+fs*0.55+i*lh); });
+  const maxW = w - padX*2, lh = fs*1.45;
+  let lines = wrap(S.hud, maxW - fs*1.4); if(lines.length > 4) lines = lines.slice(0, 4);
+  const ph = lines.length*lh + fs*1.1, py = y + h - h*0.14 - ph;
+  ctx.fillStyle = 'rgba(8,14,24,.7)'; roundRect(x+padX, py, maxW, ph, fs*0.6); ctx.fill();
+  ctx.fillStyle = '#fff'; lines.forEach((l,i) => ctx.fillText(l, x+padX+fs*0.7, py+fs*0.55+i*lh));
 }
 function wrap(text, maxW){
   const out = []; let line = '';
