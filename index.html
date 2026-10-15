@@ -246,34 +246,58 @@ function onProgress(p){
 let gpuChain = Promise.resolve();
 function gpu(fn){ const p = gpuChain.then(fn, fn); gpuChain = p.catch(() => {}); return p; }
 
+// try 4-bit first (small, fast); if this phone's GPU can't run it, fall back to fp16
+const VLM_DTYPES = [
+  { label:'q4', dtype:{ embed_tokens:'fp16', vision_encoder:'q4', decoder_model_merged:'q4' } },
+  { label:'fp16', dtype:{ embed_tokens:'fp16', vision_encoder:'fp16', decoder_model_merged:'fp16' } }
+];
+const OD_DTYPES = [
+  { label:'q4', dtype:{ embed_tokens:'fp16', vision_encoder:'fp16', encoder_model:'q4', decoder_model_merged:'q4' } },
+  { label:'fp16', dtype:{ embed_tokens:'fp16', vision_encoder:'fp16', encoder_model:'fp16', decoder_model_merged:'fp16' } }
+];
+function testCanvas(){
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const g = c.getContext('2d', { willReadFrequently:true }); g.fillStyle = '#888'; g.fillRect(0,0,96,96); g.fillStyle = '#fff'; g.fillRect(30,30,36,36);
+  return c;
+}
+async function loadWithFallback(name, Cls, id, options, test){
+  let lastErr;
+  for(const opt of options){
+    let model = null;
+    try{
+      dl.clear(); S.status = `${name} 준비 중 (${opt.label})`;
+      model = await Cls.from_pretrained(id, { device:'webgpu', dtype:opt.dtype, progress_callback:onProgress });
+      S.status = `${name} 시험 실행 중`;
+      await test(model);                         // run once for real; this is where GPU kernel errors show up
+      LOCAL.mode[name] = opt.label;
+      return model;
+    }catch(e){
+      console.warn(name, opt.label, e); lastErr = e;
+      try{ await model?.dispose?.(); }catch(_){}
+      if(opt !== options.at(-1)) toast(`${name}: ${opt.label} 방식이 이 폰에서 안 돼서 다른 방식으로 다시 받아요`);
+    }
+  }
+  throw lastErr;
+}
 async function loadLocal(){
-  LOCAL.started = true; S.status = 'AI 준비 중';
+  LOCAL.started = true; LOCAL.mode = {}; S.status = 'AI 준비 중';
   try{
     HF = await import(HF_URL);
-    [LOCAL.vproc, LOCAL.vlm] = await Promise.all([
-      HF.AutoProcessor.from_pretrained(VLM_ID),
-      HF.AutoModelForImageTextToText.from_pretrained(VLM_ID, {
-        device:'webgpu', progress_callback:onProgress,
-        dtype:{ embed_tokens:'fp16', vision_encoder:'q4', decoder_model_merged:'q4' }
-      })
-    ]);
-    S.status = 'AI 예열 중';
-    const warm = document.createElement('canvas'); warm.width = warm.height = 64; warm.getContext('2d').fillRect(0,0,64,64);
-    await gpu(() => localVlm(warm, 'Hi', null, 1)).catch(() => {});
+    LOCAL.vproc = await HF.AutoProcessor.from_pretrained(VLM_ID);
+    LOCAL.vlm = await gpu(() => loadWithFallback('답변 AI', HF.AutoModelForImageTextToText, VLM_ID, VLM_DTYPES,
+      async m => { LOCAL.vlm = m; await localVlm(testCanvas(), 'What color is the square?', null, 4); }));
     LOCAL.ready = true; S.status = '폰 내장 AI';
-    toast('AI 준비 완료. 윤곽 모델도 이어서 받아요');
-  }catch(e){ console.error(e); S.status = 'AI 불러오기 실패'; toast('AI 모델을 불러오지 못했어요: ' + (e.message || e)); return; }
+    toast('답변 AI 준비 완료. 윤곽 모델도 이어서 받아요');
+  }catch(e){ console.error(e); LOCAL.vlm = null; S.status = 'AI 불러오기 실패'; S.ai = '답변 AI를 이 폰에서 실행하지 못했어요. ' + shortErr(e); return; }
   try{
-    [LOCAL.oproc, LOCAL.od] = await Promise.all([
-      HF.AutoProcessor.from_pretrained(OD_ID),
-      HF.Florence2ForConditionalGeneration.from_pretrained(OD_ID, {
-        device:'webgpu', progress_callback:onProgress,
-        dtype:{ embed_tokens:'fp16', vision_encoder:'fp16', encoder_model:'q4', decoder_model_merged:'q4' }
-      })
-    ]);
+    LOCAL.oproc = await HF.AutoProcessor.from_pretrained(OD_ID);
+    LOCAL.od = await gpu(() => loadWithFallback('윤곽 AI', HF.Florence2ForConditionalGeneration, OD_ID, OD_DTYPES,
+      async m => { LOCAL.od = m; await localDetect(testCanvas()); }));
     LOCAL.odReady = true; S.status = '폰 내장 AI';
-  }catch(e){ console.error(e); S.status = '폰 내장 AI'; toast('윤곽 모델을 불러오지 못했어요'); }
+    toast('윤곽 AI도 준비됐어요. 화면을 잠깐 멈춰 보세요');
+  }catch(e){ console.error(e); LOCAL.od = null; S.status = '폰 내장 AI'; toast('윤곽 AI를 이 폰에서 실행하지 못했어요'); }
 }
+function shortErr(e){ const m = String(e?.message || e); return m.length > 120 ? m.slice(0, 120) + '...' : m; }
 async function localVlm(canvas, text, onText, max = 160){
   const image = HF.RawImage.fromCanvas(canvas);
   const prompt = LOCAL.vproc.apply_chat_template([{ role:'user', content:'<image>' + text }], { add_generation_prompt:true });
@@ -439,7 +463,7 @@ async function ask(q){
       S.history.push({ role:'user', parts:[{text:q}] }, { role:'model', parts:[{text:S.ai.trim()}] });
     }
     S.ai = S.ai.trim(); say(S.ai.slice(spoken));
-  }catch(e){ S.ai = e.message || String(e); say(S.ai); }
+  }catch(e){ console.error(e); S.ai = S.engine === 'local' && !/준비 중/.test(e.message||'') ? '폰 내장 AI가 답을 만들지 못했어요. ' + shortErr(e) : (e.message || String(e)); say(S.engine === 'local' ? '답을 만들지 못했어요.' : S.ai); }
   S.busy = false;
   if(!pending) afterSpeak();
 }
